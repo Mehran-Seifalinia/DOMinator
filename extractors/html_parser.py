@@ -30,9 +30,9 @@ class ScriptExtractor:
     def extract_external_scripts(self) -> List[str]:
         """Extracts external <script> sources (src attributes)."""
         try:
-            return [script["src"].strip() for script in self.soup.find_all("script", src=True) if script["src"].strip()]
+            return [script["src"].strip() for script in self.soup.find_all("script", src=True) if script.get("src", "").strip()]
         except Exception as e:
-            error(f"Error extracting external scripts: {e}")
+            logger.error(f"Error extracting external scripts: {e}")
             return []
 
     def extract_event_handlers(self) -> Dict[str, Dict[str, str]]:
