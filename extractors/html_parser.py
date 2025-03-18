@@ -15,7 +15,7 @@ class ScriptExtractor:
     """Extracts inline scripts, external scripts, event handlers, and inline styles from HTML content."""
 
     def __init__(self, html: str):
-        if not isinstance(html, str) or not html.strip():
+        if not html or not isinstance(html, str):
             raise ValueError("Invalid input: HTML content must be a non-empty string.")
         self.soup = BeautifulSoup(html, "html.parser")
 
