@@ -59,7 +59,7 @@ class ScriptExtractor:
             return {}
 
     def get_scripts(self) -> Dict[str, Union[List[str], Dict[str, Dict[str, str]]]]:
-        """Extracts all scripts, event handlers, and inline styles."""
+        """Extracts inline JavaScript, external scripts, inline event handlers, and inline styles from HTML content."""
         return {
             "inline_scripts": self.extract_inline_scripts(),
             "external_scripts": self.extract_external_scripts(),
