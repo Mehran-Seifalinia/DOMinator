@@ -40,9 +40,14 @@ class ExternalFetcher:
         self.db_conn = db_conn
 
     async def _connect_db(self):
-        """Connects to the SQLite database."""
+        """Connects to the SQLite database if not already connected."""
         if self.db_conn is None:
-            self.db_conn = await aiosqlite.connect(DB_PATH)
+            async with self._db_lock:  # Ensures only one connection attempt at a time
+                if self.db_conn is None:  # Double-check to avoid redundant connection attempts
+                    try:
+                        self.db_conn = await aiosqlite.connect(DB_PATH)
+                    except Exception as e:
+                        logger.error(f"Error connecting to the database: {e}")
 
     async def close_db(self):
         """Closes the database connection."""
