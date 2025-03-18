@@ -93,12 +93,10 @@ class ExternalFetcher:
             async with session.get(url) as response:
                 if response.status == 200:
                     return await response.text()
-                else:
-                    logger.error(f"Failed to fetch {url}: HTTP {response.status}")
-                    return ""
+                logger.error(f"Failed to fetch {url}: HTTP {response.status}")
         except Exception as e:
             logger.error(f"Error fetching {url}: {e}")
-            return ""
+        return ""  # Return empty string if fetching fails
 
     async def process_script(self, content: str, url: str) -> None:
         """Processes the JavaScript content."""
