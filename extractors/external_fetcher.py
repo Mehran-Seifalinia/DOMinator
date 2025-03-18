@@ -74,15 +74,18 @@ class ExternalFetcher:
         """Caches a script into the database if the content has changed."""
         content_hash = sha256(content.encode()).hexdigest()
         await self._connect_db()
-        async with self.db_conn.cursor() as cursor:
-            await cursor.execute("SELECT content_hash FROM scripts WHERE url = ?", (url,))
-            existing_hash = await cursor.fetchone()
-            if existing_hash and existing_hash[0] == content_hash:
-                return  # Skip if content hasn't changed
-            await cursor.execute("""
-            INSERT OR REPLACE INTO scripts (url, content_hash, content)
-            VALUES (?, ?, ?)""", (url, content_hash, content))
-            await self.db_conn.commit()
+        try:
+            async with self.db_conn.cursor() as cursor:
+                await cursor.execute("SELECT content_hash FROM scripts WHERE url = ?", (url,))
+                existing_hash = await cursor.fetchone()
+                if existing_hash and existing_hash[0] == content_hash:
+                    return  # Skip if content hasn't changed
+                await cursor.execute("""
+                INSERT OR REPLACE INTO scripts (url, content_hash, content)
+                VALUES (?, ?, ?)""", (url, content_hash, content))
+                await self.db_conn.commit()
+        except Exception as e:
+            logger.error(f"Error caching script for URL {url}: {e}")
 
     async def fetch_script(self, session: ClientSession, url: str) -> str:
         """Fetches script content from a given URL."""
