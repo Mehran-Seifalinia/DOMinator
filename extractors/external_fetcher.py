@@ -38,6 +38,7 @@ class ExternalFetcher:
         """
         self.urls = urls
         self.db_conn = db_conn
+        self._db_lock = asyncio.Lock()  # Lock to prevent concurrent DB connections
 
     async def _connect_db(self):
         """Connects to the SQLite database if not already connected."""
