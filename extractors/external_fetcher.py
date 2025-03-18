@@ -50,10 +50,11 @@ class ExternalFetcher:
                         logger.error(f"Error connecting to the database: {e}")
 
     async def close_db(self):
-        """Closes the database connection."""
+        """Closes the database connection if it is open."""
         try:
             if self.db_conn:
                 await self.db_conn.close()
+                self.db_conn = None  # Reset db_conn after closing
         except Exception as e:
             logger.error(f"Error closing database connection: {e}")
 
