@@ -52,10 +52,10 @@ class ScriptExtractor:
         try:
             return {
                 f"{tag.name}[style]": tag["style"].strip()
-                for tag in self.soup.find_all(style=True) if tag["style"].strip()
+                for tag in self.soup.find_all(style=True) if tag.get("style", "").strip()
             }
         except Exception as e:
-            error(f"Error extracting inline styles: {e}")
+            logger.error(f"Error extracting inline styles: {e}")
             return {}
 
     def get_scripts(self) -> Dict[str, Union[List[str], Dict[str, Dict[str, str]]]]:
