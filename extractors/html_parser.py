@@ -5,8 +5,10 @@ from typing import Dict, List, Union
 
 # Setup logger with dynamic log level
 log_level = getenv("LOG_LEVEL", "INFO").upper()
-log_level = getattr(globals(), log_level, INFO)  # Improve safety by ensuring it resolves to a valid log level
-basicConfig(level=getattr(globals(), log_level, INFO), format="%(levelname)s: %(message)s")
+log_level = getattr(globals(), log_level, INFO)  # Ensure safe resolution of log level
+if log_level not in globals():
+    logger.error(f"Invalid log level '{log_level}', falling back to INFO.")
+basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 logger = getLogger(__name__)
 
 class ScriptExtractor:
