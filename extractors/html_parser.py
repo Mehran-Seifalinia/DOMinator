@@ -22,9 +22,9 @@ class ScriptExtractor:
     def extract_inline_scripts(self) -> List[str]:
         """Extracts inline JavaScript from <script> tags."""
         try:
-            return [script.text.strip() for script in self.soup.find_all("script") if script.text.strip()]
+            return [script.text for script in self.soup.find_all("script") if script.text.strip()]
         except Exception as e:
-            error(f"Error extracting inline scripts: {e}")
+            logger.error(f"Error extracting inline scripts: {e}")
             return []
 
     def extract_external_scripts(self) -> List[str]:
