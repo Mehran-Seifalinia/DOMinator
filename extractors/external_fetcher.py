@@ -59,12 +59,16 @@ class ExternalFetcher:
             logger.error(f"Error closing database connection: {e}")
 
     async def get_cached_script(self, url: str) -> str:
-        """Retrieves a cached script from the database."""
+        """Retrieves a cached script from the database if it exists."""
         await self._connect_db()
-        async with self.db_conn.cursor() as cursor:
-            await cursor.execute("SELECT content FROM scripts WHERE url = ?", (url,))
-            result = await cursor.fetchone()
-        return result[0] if result else ""
+        try:
+            async with self.db_conn.cursor() as cursor:
+                await cursor.execute("SELECT content FROM scripts WHERE url = ?", (url,))
+                result = await cursor.fetchone()
+            return result[0] if result else ""  # Return the content or empty string if not found
+        except Exception as e:
+            logger.error(f"Error fetching cached script for URL {url}: {e}")
+            return ""  # Return empty string in case of error
 
     async def cache_script(self, url: str, content: str) -> None:
         """Caches a script into the database if the content has changed."""
