@@ -39,7 +39,7 @@ class ScriptExtractor:
         """Extracts inline event handlers (e.g., onclick, onmouseover) from HTML elements."""
         try:
             return {
-                tag.name: {attr: value.strip() for attr, value in tag.attrs.items() if attr.lower().startswith("on")}
+                tag.name: {attr: value.strip() for attr, value in tag.attrs.items() if attr.lower().startswith("on") and value.strip()}
                 for tag in self.soup.find_all(True)
             }
         except Exception as e:
