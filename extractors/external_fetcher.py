@@ -4,6 +4,7 @@ from hashlib import sha256
 from aiohttp import ClientSession
 from pathlib import Path
 import logging
+from typing import List, Optional
 
 DB_PATH = "scripts.db"
 
@@ -28,9 +29,15 @@ async def init_db():
         logger.error(f"Error initializing database: {e}")
 
 class ExternalFetcher:
-    def __init__(self, urls: list):
+    def __init__(self, urls: List[str], db_conn: Optional[aiosqlite.Connection] = None):
+        """
+        Initializes the ExternalFetcher class with a list of URLs and an optional database connection.
+
+        :param urls: List of URLs to be fetched.
+        :param db_conn: Optional database connection. If None, the connection will be established later.
+        """
         self.urls = urls
-        self.db_conn = None
+        self.db_conn = db_conn
 
     async def _connect_db(self):
         """Connects to the SQLite database."""
