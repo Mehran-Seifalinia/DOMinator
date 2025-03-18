@@ -140,6 +140,9 @@ if __name__ == "__main__":
     fetcher = ExternalFetcher(urls)
     
     async def main():
-        await fetcher.fetch_and_process_scripts()
+        try:
+            await fetcher.fetch_and_process_scripts()
+        finally:
+            await fetcher.close_db()  # Ensure DB connection is closed even on error
     
     asyncio.run(main())
