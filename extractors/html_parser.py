@@ -5,6 +5,7 @@ from typing import Dict, List, Union
 
 # Setup logger with dynamic log level
 log_level = getenv("LOG_LEVEL", "INFO").upper()
+log_level = getattr(globals(), log_level, INFO)  # Improve safety by ensuring it resolves to a valid log level
 basicConfig(level=getattr(globals(), log_level, INFO), format="%(levelname)s: %(message)s")
 logger = getLogger(__name__)
 
