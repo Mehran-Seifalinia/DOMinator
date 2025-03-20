@@ -5,6 +5,7 @@ from aiohttp import ClientSession
 from pathlib import Path
 import logging
 from typing import List, Optional
+from re import findall
 
 DB_PATH = "scripts.db"
 
@@ -100,10 +101,28 @@ class ExternalFetcher:
         return ""  # Return empty string if fetching fails
 
     async def process_script(self, content: str, url: str) -> None:
-        """Processes the JavaScript content."""
+        """Processes the JavaScript content to extract event listeners and potential security risks."""
         try:
             logger.info(f"Processing script from {url}")
-            # Placeholder for actual processing logic
+
+            # Extract event listeners (e.g., `element.addEventListener("click", function() {...})`)
+            event_listeners = findall(r'\.addEventListener\(["\'](\w+)["\']', content)
+
+            # Check for risky functions such as eval(), setTimeout(), setInterval(), document.write()
+            risky_functions = findall(r'\b(eval|setTimeout|setInterval|document\.write)\b', content)
+
+            # Store the results
+            script_analysis = {
+                "url": url,
+                "event_listeners": list(set(event_listeners)),  # Remove duplicates
+                "risky_functions": list(set(risky_functions))
+            }
+
+            logger.info(f"Analysis result: {script_analysis}")
+            
+            # Here we can store the results or send them to another module for further processing
+            return script_analysis
+
         except Exception as e:
             logger.error(f"Error processing script from {url}: {e}")
 
