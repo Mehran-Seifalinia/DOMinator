@@ -7,7 +7,14 @@ logger = logging.getLogger(__name__)
 
 class EventHandlerExtractor:
     def __init__(self, html: str):
-        """Initializes the extractor with the provided HTML content."""
+        """Initializes the extractor with the provided HTML content.
+        
+        Args:
+            html (str): The HTML content from which event handlers will be extracted.
+        
+        Raises:
+            ValueError: If the HTML content is invalid or ScriptExtractor initialization fails.
+        """
         try:
             self.extractor = ScriptExtractor(html)
             logger.info("Successfully initialized ScriptExtractor.")
@@ -15,8 +22,16 @@ class EventHandlerExtractor:
             logger.error(f"Error initializing ScriptExtractor: {e}")
             raise
 
-    def extract_event_handlers(self):
-        """Extracts event handlers from the given HTML content."""
+    def extract_event_handlers(self) -> dict:
+        """Extracts event handlers from the given HTML content.
+        
+        Returns:
+            dict: A dictionary of event handlers found in the HTML content.
+                 Returns an empty dictionary if no event handlers are found.
+        
+        Raises:
+            Exception: If an error occurs during extraction.
+        """
         try:
             event_handlers = self.extractor.extract_event_handlers()
             if event_handlers:
