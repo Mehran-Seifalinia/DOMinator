@@ -1,5 +1,5 @@
 import logging
-from HTML_Parser import ScriptExtractor
+from .html_Parser import ScriptExtractor
 
 # Setting up logging for debugging and tracking
 logging.basicConfig(level=logging.INFO)
