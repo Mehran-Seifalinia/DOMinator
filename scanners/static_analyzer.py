@@ -1,15 +1,11 @@
 import logging
 import re
 from html_Parser import ScriptExtractor
-from typing import List, Dict, Any, Union
+from typing import List, Dict
 
 # Setup logger
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-formatter = logging.Formatter("%(levelname)s: %(message)s")
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 class StaticAnalyzer:
     """Performs static analysis on the HTML and JavaScript content for potential XSS vulnerabilities."""
@@ -18,75 +14,76 @@ class StaticAnalyzer:
         """Initializes the analyzer with the given HTML content."""
         try:
             self.extractor = ScriptExtractor(html)
-            self.scripts_data = self.extractor.get_scripts()
-            
-            if not self.scripts_data:
-                raise ValueError("ScriptExtractor returned None or invalid data.")
-                
+            self.scripts_data = self.extractor.get_scripts()  # Extract all script-related data
             logger.info("Static analyzer initialized.")
         except ValueError as e:
             logger.error(f"Error initializing StaticAnalyzer: {e}")
-            self.scripts_data = None
             raise
 
-    def analyze_inline_scripts(self) -> List[Dict[str, Union[str, List[str]]]]:
+    def analyze_inline_scripts(self) -> Dict[int, Dict]:
         """Analyzes inline JavaScript for risky patterns like eval(), document.write(), etc."""
-        if not self.scripts_data:
-            logger.warning("No scripts data available.")
-            return []
+        risky_patterns = {
+            r'\beval\(': "eval() execution",
+            r'\bdocument\.write\(': "document.write() execution",
+            r'\bsetTimeout\(': "setTimeout() execution",
+            r'\bsetInterval\(': "setInterval() execution",
+            r'\batob\(': "Base64 decode (atob)",
+            r'\bbtoa\(': "Base64 encode (btoa)"
+        }
+        risky_scripts = {}
 
-        risky_patterns = [r'\beval\(', r'\bdocument\.write\(', r'\bsetTimeout\(', r'\bsetInterval\(']
-        risky_scripts = []
+        for index, script in enumerate(self.scripts_data.inline_scripts):
+            matches = {desc: re.findall(pattern, script) for pattern, desc in risky_patterns.items() if re.search(pattern, script)}
+            if matches:
+                risky_scripts[index] = {"script": script, "issues": matches}
 
-        for script in self.scripts_data.inline_scripts:
-            risky_functions = [pattern for pattern in risky_patterns if re.search(pattern, script)]
-            if risky_functions:
-                risky_scripts.append({"script": script, "risky_functions": risky_functions})
-
-        logger.info(f"Found {len(risky_scripts)} risky inline scripts.")
+        logger.info(f"Risky inline scripts found: {len(risky_scripts)}")
         return risky_scripts
 
     def analyze_external_scripts(self) -> List[str]:
-        """Checks external scripts for potential risks (basic URL filtering)."""
-        if not self.scripts_data:
-            logger.warning("No scripts data available.")
-            return []
-
-        known_malicious_sources = ["malicious.com", "untrusted-source.net", "suspicious-domain.org"]
-        risky_urls = [url for url in self.scripts_data.external_scripts if any(domain in url for domain in known_malicious_sources)]
-
-        logger.info(f"Found {len(risky_urls)} risky external scripts.")
+        """Checks external scripts for potential risks (e.g., hosted on untrusted sources)."""
+        risky_urls = [url for url in self.scripts_data.external_scripts if "example.com" in url]
+        logger.info(f"Risky external scripts found: {len(risky_urls)}")
         return risky_urls
 
     def analyze_event_handlers(self) -> Dict[str, List[Dict[str, str]]]:
         """Analyzes event handlers in the HTML content to check for XSS risks."""
-        if not self.scripts_data:
-            logger.warning("No scripts data available.")
-            return {}
+        risky_event_handlers = {}
+        for tag, handlers in self.scripts_data.event_handlers.items():
+            filtered_handlers = [handler for handler in handlers if any(re.search(r'\beval\(|\bdocument\.write\(', handler[attr]) for attr in handler)]
+            if filtered_handlers:
+                risky_event_handlers[tag] = filtered_handlers
 
-        risky_event_handlers = {
-            tag: handlers for tag, handlers in self.scripts_data.event_handlers.items()
-            if any(any(re.search(r'\beval\(|\bdocument\.write\(', handler[attr]) for attr in handler) for handler in handlers)
-        }
-
-        logger.info(f"Found {len(risky_event_handlers)} risky event handlers.")
+        logger.info(f"Risky event handlers found: {len(risky_event_handlers)}")
         return risky_event_handlers
 
-    def run_analysis(self) -> Dict[str, Any]:
+    def analyze_data_urls(self) -> List[str]:
+        """Checks for risky data: URLs with embedded JavaScript."""
+        risky_data_urls = [url for url in self.scripts_data.data_urls if re.search(r'data:text/javascript;base64,', url)]
+        logger.info(f"Risky data URLs found: {len(risky_data_urls)}")
+        return risky_data_urls
+
+    def run_analysis(self) -> Dict:
         """Runs the full static analysis and returns the results."""
-        return {
+        result = {
             "risky_inline_scripts": self.analyze_inline_scripts(),
             "risky_external_scripts": self.analyze_external_scripts(),
-            "risky_event_handlers": self.analyze_event_handlers()
+            "risky_event_handlers": self.analyze_event_handlers(),
+            "risky_data_urls": self.analyze_data_urls()
         }
+        return result
 
 # Example usage:
 if __name__ == "__main__":
-    html_content = "<html><body><script>eval('alert(1)');</script></body></html>"
-    
-    try:
-        analyzer = StaticAnalyzer(html_content)
-        analysis_result = analyzer.run_analysis()
-        print(analysis_result)
-    except ValueError as e:
-        logger.error("Failed to initialize StaticAnalyzer.")
+    html_content = """
+    <html>
+        <body>
+            <script>eval('alert(1)');</script>
+            <script>atob('c2NyaXB0IGFsZXJ0KDEpOw==');</script>
+            <img src=x onerror="document.write('XSS')">
+        </body>
+    </html>
+    """
+    analyzer = StaticAnalyzer(html_content)
+    analysis_result = analyzer.run_analysis()
+    print(analysis_result)
