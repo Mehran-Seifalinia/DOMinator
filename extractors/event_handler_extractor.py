@@ -1,9 +1,9 @@
-import logging
-from html_parser import ScriptExtractor
+from logging import basicConfig, getLogger, INFO
+from html_parser import ScriptExtractor  # Assuming this is the custom library for script extraction
 
 # Setting up logging for debugging and tracking
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+basicConfig(level=INFO)
+logger = getLogger(__name__)
 
 class EventHandlerExtractor:
     def __init__(self, html: str):
@@ -19,7 +19,10 @@ class EventHandlerExtractor:
             self.extractor = ScriptExtractor(html)
             logger.info("Successfully initialized ScriptExtractor.")
         except ValueError as e:
-            logger.error(f"Error initializing ScriptExtractor: {e}")
+            logger.error(f"Invalid HTML content: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during initialization: {e}")
             raise
 
     def extract_event_handlers(self) -> dict:
@@ -34,6 +37,8 @@ class EventHandlerExtractor:
         """
         try:
             event_handlers = self.extractor.extract_event_handlers()
+            if not isinstance(event_handlers, dict):
+                raise TypeError(f"Expected dict, got {type(event_handlers)}")
             if event_handlers:
                 logger.info(f"Event handlers extracted: {event_handlers}")
             else:
