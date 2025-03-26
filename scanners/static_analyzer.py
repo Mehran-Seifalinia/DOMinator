@@ -16,22 +16,32 @@ logger = getLogger(__name__)
 
 # Precompiled regex patterns for better performance
 dangerous_patterns = [
-    compile(r"(?i)(eval|Function)\s*\("),
+    compile(r"(?i)\beval\s*\("),  # \b ensures that we match only the word "eval"
+    compile(r"(?i)\bFunction\s*\("),
     compile(r"(?i)window\s*\[\s*['\"]eval['\"]\s*\]"),
     compile(r"(?i)\(\s*\d+\s*,\s*eval\s*\)"),
     compile(r"(?i)\.eval\s*\("),
-    compile(r"(?i)\.(innerHTML|outerHTML)\s*="),
-    compile(r"(?i)document\.(write|writeln)\s*\("),
+    compile(r"(?i)\.(innerHTML|outerHTML|innerText|outerText)\s*="),
+    compile(r"(?i)document\.(write|writeln|open)\s*\("),  # Added open() as it's dangerous
     compile(r"(?i)(setTimeout|setInterval)\s*\("),
     compile(r"(?i)new\s+(ActiveXObject|XMLHttpRequest)\s*\("),
+    compile(r"(?i)document\.cookie\s*="),  # Detect potential XSS or CSRF issues
+    compile(r"(?i)localStorage\s*=",),
+    compile(r"(?i)sessionStorage\s*=",),
+    compile(r"(?i)window\.location\s*="),  # Sensitive location access
+    compile(r"(?i)fetch\s*\("),  # Detect potential AJAX requests
 ]
 
 dangerous_html_patterns = [
     compile(r"(?i)on\w+\s*="),
     compile(r"(?i)javascript\s*:"),  # Avoid javascript: in href or src
-    compile(r"(?i)data\s*:\s*text\s*/\s*html"),
+    compile(r"(?i)data\s*:\s*text\s*/\s*html"),  # Avoid data:text/html
     compile(r"(?i)<\s*script[^>]*>.*<\s*/\s*script\s*>"),
+    compile(r"(?i)<\s*iframe[^>]*>.*<\s*/\s*iframe\s*>"),  # Iframe injection
+    compile(r"(?i)<\s*object\s*data\s*=\s*['\"].*['\"]\s*>"),  # Object tag with external resources
 ]
+
+
 
 # Define risk levels for different patterns
 RISK_LEVELS = {
