@@ -1,6 +1,6 @@
 from re import compile
 from logging import getLogger, basicConfig, INFO
-from requests import get
+from requests import get, Response
 from os import getenv
 from typing import Dict, List, Tuple, Optional, TypedDict
 from dataclasses import dataclass
@@ -8,12 +8,15 @@ from bs4 import BeautifulSoup
 
 # Setup logger with dynamic log level
 log_level = getenv("LOG_LEVEL", "INFO").upper()
-basicConfig(level=getattr(INFO, log_level, INFO), format="%(levelname)s: %(message)s")
+if log_level not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+    log_level = "INFO"
+    getLogger().warning(f"Invalid log level: {log_level}, falling back to INFO")
+basicConfig(level=getattr(INFO, log_level), format="%(levelname)s: %(message)s")
 logger = getLogger(__name__)
 
 # Precompiled regex patterns for better performance
 dangerous_patterns = [
-    compile(r"(?i)(?<!\w)(eval|Function)\s*\("),
+    compile(r"(?i)(eval|Function)\s*\("),
     compile(r"(?i)window\s*\[\s*['\"]eval['\"]\s*\]"),
     compile(r"(?i)\(\s*\d+\s*,\s*eval\s*\)"),
     compile(r"(?i)\.eval\s*\("),
@@ -45,6 +48,7 @@ RISK_LEVELS = {
 }
 
 def assess_risk(pattern: str) -> str:
+    """Assesses the risk level based on the matched pattern."""
     return RISK_LEVELS.get(pattern.lower(), 'unknown')
 
 @dataclass
@@ -59,6 +63,7 @@ class StaticAnalyzer:
     """Extracts scripts, event handlers, inline styles, and dangerous patterns from HTML content."""
 
     def __init__(self, html: str):
+        """Initializes the analyzer with the provided HTML content."""
         if not html or not isinstance(html, str) or not html.strip():
             raise ValueError("Invalid input: HTML content must be a non-empty string.")
         try:
@@ -76,8 +81,11 @@ class StaticAnalyzer:
             return self._script_cache[url]
         
         try:
-            response = get(url, timeout=5)
+            response: Response = get(url, timeout=5)
             response.raise_for_status()
+            if "text/javascript" not in response.headers.get("Content-Type", ""):
+                logger.warning(f"URL {url} did not return JavaScript content.")
+                return None
             self._script_cache[url] = response.text
             return response.text
         except Exception as e:
@@ -87,7 +95,8 @@ class StaticAnalyzer:
     def detect_dangerous_patterns(self) -> List[Occurrence]:
         """Detects dangerous JavaScript functions and HTML attributes with positions."""
         occurrences = []
-        
+
+        # Check inline scripts for dangerous patterns
         for script in self.soup.find_all("script"):
             if script.text.strip():
                 for pattern in dangerous_patterns:
@@ -99,7 +108,8 @@ class StaticAnalyzer:
                             "context": script.text[max(0, match.start()-20):match.end()+20],
                             "risk_level": assess_risk(match.group())
                         })
-        
+
+        # Check HTML attributes for dangerous patterns
         for tag in self.soup.find_all(True):
             for attr, value in tag.attrs.items():
                 for pattern in dangerous_html_patterns:
@@ -111,8 +121,16 @@ class StaticAnalyzer:
                             "context": f"{tag.name} {attr}={value[:50]}...",
                             "risk_level": assess_risk(attr)
                         })
-        
-        return occurrences
+
+        # Reduce false positives by combining matching patterns
+        refined_occurrences = []
+        seen_patterns = set()
+        for occurrence in occurrences:
+            if occurrence["pattern"] not in seen_patterns:
+                refined_occurrences.append(occurrence)
+                seen_patterns.add(occurrence["pattern"])
+
+        return refined_occurrences
 
     def analyze(self) -> ScriptData:
         """Extracts all relevant script-related data from HTML content."""
@@ -127,3 +145,6 @@ class StaticAnalyzer:
         except Exception as e:
             logger.error(f"Error analyzing scripts: {e}")
             return ScriptData(inline_scripts=[], external_scripts=[], event_handlers={}, inline_styles={}, dangerous_occurrences=[])
+    
+    # Additional methods for extracting inline scripts, external scripts, event handlers, and inline styles
+    # These methods should be implemented according to your specific needs.
