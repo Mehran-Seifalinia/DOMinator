@@ -4,8 +4,9 @@ from logging import getLogger, basicConfig, INFO
 from pathlib import Path
 from hashlib import sha256
 from re import findall
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientTimeout
 from aiosqlite import connect
+from typing import List, Optional, Union, Dict
 
 DB_PATH = "scripts.db"
 
@@ -13,13 +14,13 @@ DB_PATH = "scripts.db"
 logger = getLogger(__name__)
 basicConfig(level=INFO)
 
-async def init_db():
+async def init_db() -> bool:
     """Initializes the SQLite database for caching scripts asynchronously."""
     try:
         async with connect(DB_PATH) as conn:
             # Enable WAL mode for better concurrent read/write performance
             await conn.execute("PRAGMA journal_mode=WAL;")
-            await conn.execute("""
+            await conn.execute(""" 
             CREATE TABLE IF NOT EXISTS scripts (
                 url TEXT PRIMARY KEY,
                 content_hash TEXT NOT NULL,
@@ -33,15 +34,18 @@ async def init_db():
         return False
 
 class ExternalFetcher:
-    def __init__(self, urls: List[str], db_conn: Optional[aiosqlite.Connection] = None):
+    def __init__(self, urls: List[str], db_conn: Optional[aiosqlite.Connection] = None, proxy: Optional[str] = None, timeout: int = 10):
         """
-        Initializes the ExternalFetcher class with a list of URLs and an optional database connection.
+        Initializes the ExternalFetcher class with a list of URLs, an optional database connection,
+        an optional proxy URL, and a timeout setting for requests.
         """
-        self.urls = urls
-        self.db_conn = db_conn
-        self._db_lock = asyncio.Lock()
+        self.urls: List[str] = urls
+        self.db_conn: Optional[aiosqlite.Connection] = db_conn
+        self.proxy: Optional[str] = proxy
+        self.timeout: int = timeout
+        self._db_lock: Lock = asyncio.Lock()  # Ensures only one connection attempt at a time
 
-    async def _connect_db(self):
+    async def _connect_db(self) -> bool:
         """Connects to the SQLite database if not already connected."""
         if self.db_conn is None:
             async with self._db_lock:  # Ensures only one connection attempt at a time
@@ -53,22 +57,25 @@ class ExternalFetcher:
                         logger.info("Database connected")
                     except Exception as e:
                         logger.error(f"Error connecting to the database: {e}")
-        return self.db_conn is not None
+                        return False
+        return True
 
-    async def close_db(self):
+    async def close_db(self) -> bool:
         """Closes the database connection if it is open."""
-        try:
-            if self.db_conn:
-                await self.db_conn.close()
-                self.db_conn = None  # Reset db_conn after closing
-                logger.info("Database connection closed")
-                return True
+        if not self.db_conn:
+            logger.warning("Database connection is already closed.")
             return False
+        
+        try:
+            await self.db_conn.close()
+            self.db_conn = None  # Reset db_conn after closing
+            logger.info("Database connection closed")
+            return True
         except Exception as e:
             logger.error(f"Error closing database connection: {e}")
             return False
 
-    async def get_cached_script(self, url: str) -> str:
+    async def get_cached_script(self, url: str) -> Optional[str]:
         """Retrieves a cached script from the database if it exists."""
         await self._connect_db()
         try:
@@ -82,7 +89,7 @@ class ExternalFetcher:
 
     async def cache_script(self, url: str, content: str) -> None:
         """Caches a script into the database if the content has changed."""
-        content_hash = sha256(content.encode()).hexdigest()
+        content_hash: str = sha256(content.encode()).hexdigest()
         await self._connect_db()
         try:
             async with self.db_conn.cursor() as cursor:
@@ -99,10 +106,10 @@ class ExternalFetcher:
         except Exception as e:
             logger.error(f"Error caching script for URL {url}: {e}")
 
-    async def fetch_script(self, session: ClientSession, url: str) -> str:
+    async def fetch_script(self, session: ClientSession, url: str) -> Optional[str]:
         """Fetches script content from a given URL."""
         try:
-            async with session.get(url, timeout=10) as response:
+            async with session.get(url, timeout=self.timeout, proxy=self.proxy) as response:
                 if response.status == 200:
                     return await response.text()
                 logger.error(f"Failed to fetch {url}: HTTP {response.status}")
@@ -110,7 +117,7 @@ class ExternalFetcher:
             logger.error(f"Error fetching {url}: {e}")
         return None
 
-    async def process_script(self, content: str, url: str) -> None:
+    async def process_script(self, content: str, url: str) -> Optional[Dict[str, Union[str, List[str]]]]:
         """Processes the JavaScript content to extract event listeners and potential security risks."""
         try:
             logger.info(f"Processing script from {url}")
@@ -118,16 +125,16 @@ class ExternalFetcher:
             # Skip minified scripts
             if ".min.js" in url:
                 logger.warning(f"Skipping minified script: {url}")
-                return
+                return None
 
             # Extract event listeners (e.g., `element.addEventListener("click", function() {...})`)
-            event_listeners = findall(r'\.addEventListener\(["\'](\w+)["\']', content)
+            event_listeners: List[str] = findall(r'\.addEventListener\(["\'](\w+)["\']', content)
 
             # Check for risky functions such as eval(), setTimeout(), setInterval(), document.write()
-            risky_functions = findall(r'\b(eval|setTimeout|setInterval|document\.write)\b', content)
+            risky_functions: List[str] = findall(r'\b(eval|setTimeout|setInterval|document\.write)\b', content)
 
             # Store the results
-            script_analysis = {
+            script_analysis: Dict[str, Union[str, List[str]]] = {
                 "url": url,
                 "event_listeners": list(set(event_listeners)),
                 "risky_functions": list(set(risky_functions))
@@ -138,6 +145,7 @@ class ExternalFetcher:
 
         except Exception as e:
             logger.error(f"Error processing script from {url}: {e}")
+            return None
 
     async def fetch_and_process_scripts(self) -> None:
         """Fetches and processes scripts, caching the results."""
@@ -145,9 +153,9 @@ class ExternalFetcher:
             await init_db()  # Initialize DB if necessary
             async with ClientSession() as session:
                 # Fetch cached scripts first
-                cached_scripts = await asyncio.gather(*[self.get_cached_script(url) for url in self.urls])
+                cached_scripts: List[Optional[str]] = await gather(*[self.get_cached_script(url) for url in self.urls])
 
-                tasks = []
+                tasks: List[Union[Optional[str], None]] = []
                 for url, cached_script in zip(self.urls, cached_scripts):
                     if cached_script:
                         logger.info(f"Using cached script for {url}")
@@ -155,7 +163,7 @@ class ExternalFetcher:
                     else:
                         tasks.append(self.fetch_script(session, url))
 
-                scripts = await gather(*tasks, return_exceptions=True)
+                scripts: List[Union[None, Optional[str], Exception]] = await gather(*tasks, return_exceptions=True)
                 for url, script_content in zip(self.urls, scripts):
                     if isinstance(script_content, Exception):
                         logger.error(f"Error fetching {url}: {script_content}")
@@ -168,13 +176,15 @@ class ExternalFetcher:
             await self.close_db()  # Ensure the DB connection is closed even on error
 
 if __name__ == "__main__":
-    urls = argv[1:] if len(argv) > 1 else [
+    urls: List[str] = argv[1:] if len(argv) > 1 else [
         "https://example.com/script1.js",
         "https://example.com/script2.js"
     ]
-    fetcher = ExternalFetcher(urls)
+    proxy: Optional[str] = None  # Optional proxy URL
+    timeout: int = 10  # Default timeout in seconds
+    fetcher = ExternalFetcher(urls, proxy=proxy, timeout=timeout)
 
-    async def main():
+    async def main() -> None:
         try:
             await fetcher.fetch_and_process_scripts()
         finally:
