@@ -1,5 +1,5 @@
 from re import compile
-from logging import getLogger, basicConfig, INFO
+from logging import getLogger, basicConfig, INFO, DEBUG, WARNING, ERROR, CRITICAL
 from requests import get, Response
 from os import getenv
 from typing import Dict, List, Tuple, Optional, TypedDict
@@ -11,8 +11,17 @@ log_level = getenv("LOG_LEVEL", "INFO").upper()
 if log_level not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
     log_level = "INFO"
     getLogger().warning(f"Invalid log level: {log_level}, falling back to INFO")
-basicConfig(level=getattr(INFO, log_level), format="%(levelname)s: %(message)s")
-logger = getLogger(__name__)
+
+# Map log level string to logging constants
+log_level_map = {
+    "DEBUG": DEBUG,
+    "INFO": INFO,
+    "WARNING": WARNING,
+    "ERROR": ERROR,
+    "CRITICAL": CRITICAL
+}
+
+basicConfig(level=log_level_map.get(log_level, INFO), format="%(levelname)s: %(message)s")
 
 # Precompiled regex patterns for better performance
 dangerous_patterns = [
@@ -55,6 +64,13 @@ def assess_risk(pattern: str) -> str:
     """Assesses the risk level based on the matched pattern."""
     return RISK_LEVELS.get(pattern.lower(), 'unknown')
 
+class Occurrence(TypedDict):
+    line: int
+    column: int
+    pattern: str
+    context: str
+    risk_level: str
+
 @dataclass
 class ScriptData:
     inline_scripts: List[Tuple[int, str]]
@@ -63,12 +79,6 @@ class ScriptData:
     inline_styles: Dict[str, List[str]]
     dangerous_occurrences: List[Occurrence]
 
-class Occurrence(TypedDict):
-    line: int
-    column: int
-    pattern: str
-    context: str
-    risk_level: str
 
 class StaticAnalyzer:
     """Extracts scripts, event handlers, inline styles, and dangerous patterns from HTML content."""
