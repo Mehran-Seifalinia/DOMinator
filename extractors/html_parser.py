@@ -7,8 +7,17 @@ from logging import getLogger, basicConfig, INFO, getLevelName
 from functools import lru_cache
 
 # Setup logger with dynamic log level
+log_levels = {
+    "DEBUG": DEBUG,
+    "INFO": INFO,
+    "WARNING": WARNING,
+    "ERROR": ERROR,
+    "CRITICAL": CRITICAL
+}
+
 log_level = getenv("LOG_LEVEL", "INFO").upper()
-log_level = getattr(INFO, log_level, INFO) if isinstance(getLevelName(log_level), int) else INFO
+log_level = log_levels.get(log_level, INFO)
+
 basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 logger = getLogger(__name__)
 
