@@ -187,17 +187,18 @@ class StaticAnalyzer:
         return external_scripts
 
     def extract_event_handlers(self) -> Dict[str, List[Tuple[int, str]]]:
-        """Extracts inline event handlers like onClick, onError, etc.""" 
+        """Extracts inline event handlers like onClick, onError, etc., and stores them with line numbers."""
         event_handlers = {}
-        for tag in self.soup.find_all(True):  # All tags
+        for tag in self.soup.find_all(True):  # Iterate through all tags
             for attr, value in tag.attrs.items():
-                if attr.startswith("on"):
-                    event_handlers.setdefault(attr, []).append((tag.sourceline, value))
+                if attr.startswith("on"):  # If attribute starts with "on" (event handler)
+                    event_handlers.setdefault(attr, []).append((tag.sourceline, value))  # Store in dict with line number
         return event_handlers
-
+    
     def extract_inline_styles(self) -> Dict[str, List[str]]:
-        """Extracts inline styles from the HTML."""
+        """Extracts inline styles from the HTML and stores them in a dictionary."""
         inline_styles = {}
         for tag in self.soup.find_all(style=True):
+            # For each tag with inline style, store the styles in a dictionary
             inline_styles.setdefault(tag.name, []).append(tag["style"])
         return inline_styles
