@@ -1,127 +1,129 @@
-import re
-import logging
-from html_Parser import ScriptExtractor
-from typing import List, Dict
+from re import compile
+from logging import getLogger, basicConfig, INFO
+from requests import get
+from os import getenv
+from typing import Dict, List, Tuple, Optional, TypedDict
+from dataclasses import dataclass
+from bs4 import BeautifulSoup
 
-# Initialize logger for security analysis
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+# Setup logger with dynamic log level
+log_level = getenv("LOG_LEVEL", "INFO").upper()
+basicConfig(level=getattr(INFO, log_level, INFO), format="%(levelname)s: %(message)s")
+logger = getLogger(__name__)
 
-def analyze_script(script: str) -> int:
-    """
-    Analyze JavaScript code to detect potential XSS vulnerabilities.
-    Uses regex patterns and a weighted risk scoring system.
-    """
-    risk_score = 0  # Initialize risk score
+# Precompiled regex patterns for better performance
+dangerous_patterns = [
+    compile(r"(?i)(?<!\w)(eval|Function)\s*\("),
+    compile(r"(?i)window\s*\[\s*['\"]eval['\"]\s*\]"),
+    compile(r"(?i)\(\s*\d+\s*,\s*eval\s*\)"),
+    compile(r"(?i)\.eval\s*\("),
+    compile(r"(?i)\.(innerHTML|outerHTML)\s*="),
+    compile(r"(?i)document\.(write|writeln)\s*\("),
+    compile(r"(?i)(setTimeout|setInterval)\s*\("),
+    compile(r"(?i)new\s+(ActiveXObject|XMLHttpRequest)\s*\("),
+]
 
-    # 🛑 Detect `eval()` with dynamic input (avoid detecting static values)
-    if re.search(r'\beval\s*\(\s*[a-zA-Z_$][\w$]*', script):
-        risk_score += 3  # High-risk behavior: executing dynamic input
+dangerous_html_patterns = [
+    compile(r"(?i)on\w+\s*="),
+    compile(r"(?i)javascript\s*:"),
+    compile(r"(?i)data\s*:\s*text\s*/\s*html"),
+    compile(r"(?i)<\s*script[^>]*>.*<\s*/\s*script\s*>"),
+]
 
-    # 🚨 Identify `innerHTML` and `outerHTML` assignments with dynamic values
-    if re.search(r'\b(innerHTML|outerHTML)\s*=\s*[a-zA-Z_$][\w$]*', script):
-        risk_score += 2  # Medium-risk: possible DOM injection
+class Occurrence(TypedDict):
+    line: int
+    column: int
+    pattern: str
+    context: str
+    risk_level: str
 
-    # ⏳ Detect `setTimeout` and `setInterval` executing strings instead of functions
-    if re.search(r'\bset(Time|Interval)\s*\(\s*[\'"]', script):
-        risk_score += 2  # Medium-risk: unsafe delayed execution
+RISK_LEVELS = {
+    'eval': 'high',
+    'Function': 'high',
+    'innerHTML': 'medium',
+    'onclick': 'medium',
+}
 
-    # 🔓 Identify `atob()` misuse leading to `eval()` or `document.write()`
-    if re.search(r'atob\s*\(\s*.*?\s*\)\s*(\||\+|\*|\/|\(|\[|\{)*\s*(eval|document\.write)', script):
-        risk_score += 3  # High-risk: Base64 payload decoding & execution
+def assess_risk(pattern: str) -> str:
+    return RISK_LEVELS.get(pattern.lower(), 'unknown')
 
-    # ⚠️ Detect potentially risky event handlers
-    if "onerror=" in script or "onload=" in script:
-        risk_score += 1  # Low-risk: could be used for malicious payloads
-
-    # 🌍 Detect location-based redirections (possible phishing attempt)
-    if "location.href=" in script or "document.URL=" in script:
-        risk_score += 1  # Low-risk: potential URL manipulation
-
-    # 🟢 Ignore harmless functions like `console.log()` and `alert()`
-    if "console.log(" in script or "alert(" in script:
-        risk_score -= 1  # Reduce false positives
-
-    # 🚨 Risk classification based on accumulated score
-    if risk_score >= 5:
-        logger.warning("⚠️ High-risk script detected!")
-    elif risk_score >= 3:
-        logger.info("⚠️ Medium-risk script detected.")
-    else:
-        logger.info("✅ Low-risk script.")
-
-    return risk_score  # Return final risk score for further analysis
-
+@dataclass
+class ScriptData:
+    inline_scripts: List[Tuple[int, str]]
+    external_scripts: List[str]
+    event_handlers: Dict[str, List[Tuple[int, str]]]
+    inline_styles: Dict[str, List[str]]
+    dangerous_occurrences: List[Occurrence]
 
 class StaticAnalyzer:
-    """Performs static analysis on the HTML and JavaScript content for potential XSS vulnerabilities."""
-    
+    """Extracts scripts, event handlers, inline styles, and dangerous patterns from HTML content."""
+
     def __init__(self, html: str):
-        """Initializes the analyzer with the given HTML content."""
+        if not html or not isinstance(html, str) or not html.strip():
+            raise ValueError("Invalid input: HTML content must be a non-empty string.")
         try:
-            self.extractor = ScriptExtractor(html)
-            self.scripts_data = self.extractor.get_scripts()
-            logger.info("Static analyzer initialized.")
-        except ValueError as e:
-            logger.error(f"Error initializing StaticAnalyzer: {e}")
-            raise
+            self.soup = BeautifulSoup(html, "html.parser")
+        except Exception as e:
+            logger.error(f"Error parsing HTML: {e}")
+            self.soup = None
 
-    def analyze_inline_scripts(self) -> Dict[int, Dict]:
-        """Analyzes inline JavaScript for risky patterns like eval(), document.write(), etc."""
-        risky_scripts = {}
-        for index, script in enumerate(self.scripts_data.inline_scripts):
-            risk_score = analyze_script(script)  # Get risk score for each script
-            if risk_score > 0:
-                risky_scripts[index] = {"script": script, "risk_score": risk_score}
+    def fetch_external_script(self, url: str) -> Optional[str]:
+        """Fetches external JavaScript content while using a cache to avoid duplicate requests."""
+        if not hasattr(self, "_script_cache"):
+            self._script_cache = {}
+        
+        if url in self._script_cache:
+            return self._script_cache[url]
+        
+        try:
+            response = get(url, timeout=5)
+            response.raise_for_status()
+            self._script_cache[url] = response.text
+            return response.text
+        except Exception as e:
+            logger.warning(f"Failed to fetch external script {url}: {e}")
+            return None
 
-        logger.info(f"Risky inline scripts found: {len(risky_scripts)}")
-        return risky_scripts
+    def detect_dangerous_patterns(self) -> List[Occurrence]:
+        """Detects dangerous JavaScript functions and HTML attributes with positions."""
+        occurrences = []
+        
+        for script in self.soup.find_all("script"):
+            if script.text.strip():
+                for pattern in dangerous_patterns:
+                    for match in pattern.finditer(script.text):
+                        occurrences.append({
+                            "line": script.sourceline,
+                            "column": match.start(),
+                            "pattern": match.group(),
+                            "context": script.text[max(0, match.start()-20):match.end()+20],
+                            "risk_level": assess_risk(match.group())
+                        })
+        
+        for tag in self.soup.find_all(True):
+            for attr, value in tag.attrs.items():
+                for pattern in dangerous_html_patterns:
+                    if pattern.search(attr) or pattern.search(str(value)):
+                        occurrences.append({
+                            "line": tag.sourceline,
+                            "column": 0,
+                            "pattern": attr,
+                            "context": f"{tag.name} {attr}={value[:50]}...",
+                            "risk_level": assess_risk(attr)
+                        })
+        
+        return occurrences
 
-    def analyze_external_scripts(self) -> List[str]:
-        """Checks external scripts for potential risks (e.g., hosted on untrusted sources)."""
-        known_malicious_sources = ["malicious.com", "untrusted-source.net", "suspicious-domain.org"]
-        risky_urls = [url for url in self.scripts_data.external_scripts if any(domain in url for domain in known_malicious_sources)]
-        logger.info(f"Risky external scripts found: {len(risky_urls)}")
-        return risky_urls
-
-    def analyze_event_handlers(self) -> Dict[str, List[Dict[str, str]]]:
-        """Analyzes event handlers in the HTML content to check for XSS risks."""
-        risky_event_handlers = {}
-        for tag, handlers in self.scripts_data.event_handlers.items():
-            filtered_handlers = [handler for handler in handlers if any(re.search(r'\beval\(|\bdocument\.write\(', handler[attr]) for attr in handler)]
-            if filtered_handlers:
-                risky_event_handlers[tag] = filtered_handlers
-
-        logger.info(f"Risky event handlers found: {len(risky_event_handlers)}")
-        return risky_event_handlers
-
-    def analyze_data_urls(self) -> List[str]:
-        """Checks for risky data: URLs with embedded JavaScript."""
-        risky_data_urls = [url for url in self.scripts_data.data_urls if re.search(r'data:text/javascript;base64,', url)]
-        logger.info(f"Risky data URLs found: {len(risky_data_urls)}")
-        return risky_data_urls
-
-    def run_analysis(self) -> Dict:
-        """Runs the full static analysis and returns the results."""
-        result = {
-            "risky_inline_scripts": self.analyze_inline_scripts(),
-            "risky_external_scripts": self.analyze_external_scripts(),
-            "risky_event_handlers": self.analyze_event_handlers(),
-            "risky_data_urls": self.analyze_data_urls()
-        }
-        return result
-
-# Example usage:
-if __name__ == "__main__":
-    html_content = """
-    <html>
-        <body>
-            <script>eval('alert(1)');</script>
-            <script>atob('c2NyaXB0IGFsZXJ0KDEpOw==');</script>
-            <img src=x onerror="document.write('XSS')">
-        </body>
-    </html>
-    """
-    analyzer = StaticAnalyzer(html_content)
-    analysis_result = analyzer.run_analysis()
-    print(analysis_result)
+    def analyze(self) -> ScriptData:
+        """Extracts all relevant script-related data from HTML content."""
+        try:
+            return ScriptData(
+                inline_scripts=self.extract_inline_scripts(),
+                external_scripts=self.extract_external_scripts(),
+                event_handlers=self.extract_event_handlers(),
+                inline_styles=self.extract_inline_styles(),
+                dangerous_occurrences=self.detect_dangerous_patterns(),
+            )
+        except Exception as e:
+            logger.error(f"Error analyzing scripts: {e}")
+            return ScriptData(inline_scripts=[], external_scripts=[], event_handlers={}, inline_styles={}, dangerous_occurrences=[])
