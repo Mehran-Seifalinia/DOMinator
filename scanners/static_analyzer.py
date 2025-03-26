@@ -6,11 +6,14 @@ from typing import Dict, List, Tuple, Optional, TypedDict
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
 
+# Define logger
+logger = getLogger(__name__)
+
 # Setup logger with dynamic log level
 log_level = getenv("LOG_LEVEL", "INFO").upper()
 if log_level not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
     log_level = "INFO"
-    getLogger().warning(f"Invalid log level: {log_level}, falling back to INFO")
+    logger.warning(f"Invalid log level: {log_level}, falling back to INFO")
 
 # Map log level string to logging constants
 log_level_map = {
@@ -50,8 +53,6 @@ dangerous_html_patterns = [
     compile(r"(?i)<\s*object\s*data\s*=\s*['\"].*['\"]\s*>"),  # Object tag with external resources
 ]
 
-
-
 # Define risk levels for different patterns
 RISK_LEVELS = {
     'eval': 'high',
@@ -78,7 +79,6 @@ class ScriptData:
     event_handlers: Dict[str, List[Tuple[int, str]]]
     inline_styles: Dict[str, List[str]]
     dangerous_occurrences: List[Occurrence]
-
 
 class StaticAnalyzer:
     """Extracts scripts, event handlers, inline styles, and dangerous patterns from HTML content."""
@@ -187,7 +187,7 @@ class StaticAnalyzer:
         return external_scripts
 
     def extract_event_handlers(self) -> Dict[str, List[Tuple[int, str]]]:
-        """Extracts inline event handlers like onClick, onError, etc."""
+        """Extracts inline event handlers like onClick, onError, etc.""" 
         event_handlers = {}
         for tag in self.soup.find_all(True):  # All tags
             for attr, value in tag.attrs.items():
