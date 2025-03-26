@@ -28,18 +28,12 @@ dangerous_patterns = [
 
 dangerous_html_patterns = [
     compile(r"(?i)on\w+\s*="),
-    compile(r"(?i)javascript\s*:"),
+    compile(r"(?i)javascript\s*:"),  # Avoid javascript: in href or src
     compile(r"(?i)data\s*:\s*text\s*/\s*html"),
     compile(r"(?i)<\s*script[^>]*>.*<\s*/\s*script\s*>"),
 ]
 
-class Occurrence(TypedDict):
-    line: int
-    column: int
-    pattern: str
-    context: str
-    risk_level: str
-
+# Define risk levels for different patterns
 RISK_LEVELS = {
     'eval': 'high',
     'Function': 'high',
@@ -58,6 +52,13 @@ class ScriptData:
     event_handlers: Dict[str, List[Tuple[int, str]]]
     inline_styles: Dict[str, List[str]]
     dangerous_occurrences: List[Occurrence]
+
+class Occurrence(TypedDict):
+    line: int
+    column: int
+    pattern: str
+    context: str
+    risk_level: str
 
 class StaticAnalyzer:
     """Extracts scripts, event handlers, inline styles, and dangerous patterns from HTML content."""
@@ -112,6 +113,10 @@ class StaticAnalyzer:
         # Check HTML attributes for dangerous patterns
         for tag in self.soup.find_all(True):
             for attr, value in tag.attrs.items():
+                # Avoid triggering on non-executable attributes or harmless cases
+                if 'href' in attr or 'src' in attr:
+                    if 'javascript:' in str(value).lower() or 'data:text/html' in str(value).lower():
+                        continue  # Skip javascript and data URIs
                 for pattern in dangerous_html_patterns:
                     if pattern.search(attr) or pattern.search(str(value)):
                         occurrences.append({
@@ -145,6 +150,34 @@ class StaticAnalyzer:
         except Exception as e:
             logger.error(f"Error analyzing scripts: {e}")
             return ScriptData(inline_scripts=[], external_scripts=[], event_handlers={}, inline_styles={}, dangerous_occurrences=[])
-    
-    # Additional methods for extracting inline scripts, external scripts, event handlers, and inline styles
-    # These methods should be implemented according to your specific needs.
+
+    def extract_inline_scripts(self) -> List[Tuple[int, str]]:
+        """Extracts inline scripts from the HTML."""
+        inline_scripts = []
+        for script in self.soup.find_all("script"):
+            if script.text.strip():
+                inline_scripts.append((script.sourceline, script.text))
+        return inline_scripts
+
+    def extract_external_scripts(self) -> List[str]:
+        """Extracts external script URLs from the HTML."""
+        external_scripts = []
+        for script in self.soup.find_all("script", src=True):
+            external_scripts.append(script["src"])
+        return external_scripts
+
+    def extract_event_handlers(self) -> Dict[str, List[Tuple[int, str]]]:
+        """Extracts inline event handlers like onClick, onError, etc."""
+        event_handlers = {}
+        for tag in self.soup.find_all(True):  # All tags
+            for attr, value in tag.attrs.items():
+                if attr.startswith("on"):
+                    event_handlers.setdefault(attr, []).append((tag.sourceline, value))
+        return event_handlers
+
+    def extract_inline_styles(self) -> Dict[str, List[str]]:
+        """Extracts inline styles from the HTML."""
+        inline_styles = {}
+        for tag in self.soup.find_all(style=True):
+            inline_styles.setdefault(tag.name, []).append(tag["style"])
+        return inline_styles
