@@ -8,6 +8,7 @@ from traceback import format_exc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html5lib import parse
 from functools import lru_cache
+from collections import defaultdict
 
 # Setup logger with dynamic log level
 log_levels = {
@@ -36,13 +37,18 @@ def validate_html(html: str) -> bool:
         logger.error(f"Unexpected error during HTML validation: {e}\n{format_exc()}")
         return False
 
-
 @dataclass
 class ScriptData:
     inline_scripts: List[str]
     external_scripts: List[str]
     event_handlers: Dict[str, List[Dict[str, str]]]
     inline_styles: Dict[str, List[str]]
+
+    def __init__(self, inline_scripts=None, external_scripts=None, event_handlers=None, inline_styles=None):
+        self.inline_scripts = inline_scripts or []
+        self.external_scripts = external_scripts or []
+        self.event_handlers = event_handlers or defaultdict(list)
+        self.inline_styles = inline_styles or defaultdict(list)
 
     def __str__(self) -> str:
         """Return a formatted string representation of extracted data."""
@@ -52,6 +58,7 @@ class ScriptData:
             f"Event Handlers: {sum(len(v) for v in self.event_handlers.values())} handlers\n"
             f"Inline Styles: {sum(len(v) for v in self.inline_styles.values())} elements"
         )
+
 
 class ScriptExtractor:
     """Extracts inline scripts, external scripts, event handlers, and inline styles from HTML content."""
