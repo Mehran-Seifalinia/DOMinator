@@ -117,7 +117,7 @@ class ExternalFetcher:
             logger.error(f"Error fetching {url}: {e}")
         return None
 
-    async def process_script(self, content: str, url: str) -> Optional[Dict[str, Union[str, List[str]]]]:
+    async def process_script(self, content: str, url: str) -> Optional[Dict[str, Union[str, List[str]]]]]:
         """Processes the JavaScript content to extract event listeners and potential security risks."""
         try:
             logger.info(f"Processing script from {url}")
