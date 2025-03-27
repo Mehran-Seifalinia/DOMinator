@@ -100,7 +100,7 @@ class ScriptExtractor:
     def get_scripts(self) -> ScriptData:
         """Extracts inline JavaScript, external scripts, inline event handlers, and inline styles from HTML content."""
         with ThreadPoolExecutor() as executor:
-            # Create a list of futures to submit the tasks
+            # Submit each task for concurrent execution
             futures = {
                 executor.submit(self.extract_inline_scripts): "inline_scripts",
                 executor.submit(self.extract_external_scripts): "external_scripts",
@@ -109,14 +109,14 @@ class ScriptExtractor:
             }
 
             result = {}
-            # Process futures as they complete
+            # Collect results as each task completes
             for future in as_completed(futures):
+                key = futures[future]
                 try:
-                    key = futures[future]
                     result[key] = future.result()
                 except Exception as e:
-                    logger.error(f"Error extracting {futures[future]}: {e}\n{format_exc()}")
-                    result[futures[future]] = []
+                    logger.error(f"Error extracting {key}: {e}\n{format_exc()}")
+                    result[key] = [] if key != "event_handlers" else {}
 
             return ScriptData(
                 inline_scripts=result.get("inline_scripts", []),
