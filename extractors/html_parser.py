@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from bs4 import BeautifulSoup
 from logging import getLogger, basicConfig, INFO, DEBUG, WARNING, ERROR, CRITICAL
 from traceback import format_exc
-from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html5lib import parse
+from functools import lru_cache
 
 # Setup logger with dynamic log level
 log_levels = {
@@ -45,8 +45,8 @@ class ScriptData:
         return (
             f"Inline Scripts: {len(self.inline_scripts)}\n"
             f"External Scripts: {len(self.external_scripts)}\n"
-            f"Event Handlers: {len(self.event_handlers)} types\n"
-            f"Inline Styles: {len(self.inline_styles)} elements"
+            f"Event Handlers: {sum(len(v) for v in self.event_handlers.values())} handlers\n"
+            f"Inline Styles: {sum(len(v) for v in self.inline_styles.values())} elements"
         )
 
 class ScriptExtractor:
@@ -63,7 +63,7 @@ class ScriptExtractor:
         # Now we can safely parse the HTML with BeautifulSoup
         self.soup = BeautifulSoup(html, "html.parser")
 
-    @lru_cache
+    @lru_cache(thread_safe=True)
     def extract_inline_scripts(self) -> List[str]:
         """Extracts inline JavaScript from <script> tags."""
         try:
@@ -78,7 +78,7 @@ class ScriptExtractor:
             logger.error(f"Unexpected error extracting inline scripts: {e}\n{format_exc()}")
             return []
 
-    @lru_cache
+    @lru_cache(thread_safe=True)
     def extract_external_scripts(self) -> List[str]:
         """Extracts external <script> sources (src attributes)."""
         try:
@@ -94,8 +94,8 @@ class ScriptExtractor:
             logger.error(f"Unexpected error extracting external scripts: {e}\n{format_exc()}")
             return []
 
-    @lru_cache
-    def extract_event_handlers(self) -> Dict[str, List[Dict[str, str]]]:
+    @lru_cache(thread_safe=True)
+    def extract_event_handlers(self) -> Dict[str, List[Dict[str, str]]:
         """Extracts inline event handlers (e.g., onclick, onmouseover) from HTML elements."""
         try:
             event_handlers = defaultdict(list)
@@ -110,7 +110,7 @@ class ScriptExtractor:
             logger.error(f"Unexpected error extracting event handlers: {e}\n{format_exc()}")
             return {}
 
-    @lru_cache
+    @lru_cache(thread_safe=True)
     def extract_inline_styles(self) -> Dict[str, List[str]]:
         """Extracts inline styles from HTML elements."""
         try:
@@ -151,8 +151,3 @@ class ScriptExtractor:
                 event_handlers=result.get("event_handlers", {}),
                 inline_styles=result.get("inline_styles", {})
             )
-
-# Example usage:
-# extractor = ScriptExtractor(html_content)
-# scripts_data = extractor.get_scripts()
-# print(scripts_data)
