@@ -100,6 +100,7 @@ class ScriptExtractor:
     def get_scripts(self) -> ScriptData:
         """Extracts inline JavaScript, external scripts, inline event handlers, and inline styles from HTML content."""
         with ThreadPoolExecutor() as executor:
+            # Create a list of futures to submit the tasks
             futures = {
                 executor.submit(self.extract_inline_scripts): "inline_scripts",
                 executor.submit(self.extract_external_scripts): "external_scripts",
@@ -108,6 +109,7 @@ class ScriptExtractor:
             }
 
             result = {}
+            # Process futures as they complete
             for future in as_completed(futures):
                 try:
                     key = futures[future]
