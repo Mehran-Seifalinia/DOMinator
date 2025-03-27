@@ -3,7 +3,7 @@ from typing import Dict, List
 from collections import defaultdict
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
-from logging import getLogger, basicConfig, INFO, getLevelName
+from logging import getLogger, basicConfig, INFO, DEBUG, WARNING, ERROR, CRITICAL
 from functools import lru_cache
 
 # Setup logger with dynamic log level
