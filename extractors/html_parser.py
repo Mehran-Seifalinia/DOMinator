@@ -67,12 +67,15 @@ class ScriptExtractor:
     def extract_inline_scripts(self) -> List[str]:
         """Extracts inline JavaScript from <script> tags."""
         try:
-            return [script.text.strip() for script in self.soup.find_all("script") if script.text.strip()]
+            scripts = [script.text.strip() for script in self.soup.find_all("script") if script.text.strip()]
+            if not scripts:
+                logger.warning("No inline scripts found.")
+            return scripts
         except AttributeError as e:
             logger.error(f"Error extracting inline scripts due to attribute issue: {e}\n{format_exc()}")
             return []
         except Exception as e:
-            logger.error(f"Error extracting inline scripts: {e}\n{format_exc()}")
+            logger.error(f"Unexpected error extracting inline scripts: {e}\n{format_exc()}")
             return []
 
     @lru_cache
@@ -84,9 +87,11 @@ class ScriptExtractor:
                 src = script.get("src")
                 if src and src.strip():  # Ensure src is not empty or invalid
                     scripts.append(src.strip())
+            if not scripts:
+                logger.warning("No external scripts found.")
             return scripts
         except Exception as e:
-            logger.error(f"Error extracting external scripts: {e}\n{format_exc()}")
+            logger.error(f"Unexpected error extracting external scripts: {e}\n{format_exc()}")
             return []
 
     @lru_cache
@@ -98,9 +103,11 @@ class ScriptExtractor:
                 handlers = {attr: value.strip() for attr, value in tag.attrs.items() if attr.lower().startswith("on") and value.strip()}
                 if handlers:
                     event_handlers[tag.name].append(handlers)
+            if not event_handlers:
+                logger.warning("No event handlers found.")
             return dict(event_handlers)
         except Exception as e:
-            logger.error(f"Error extracting event handlers: {e}\n{format_exc()}")
+            logger.error(f"Unexpected error extracting event handlers: {e}\n{format_exc()}")
             return {}
 
     @lru_cache
@@ -110,9 +117,11 @@ class ScriptExtractor:
             styles = defaultdict(list)
             for tag in self.soup.find_all(style=True):
                 styles[tag.name].append(tag["style"].strip())
+            if not styles:
+                logger.warning("No inline styles found.")
             return dict(styles)
         except Exception as e:
-            logger.error(f"Error extracting inline styles: {e}\n{format_exc()}")
+            logger.error(f"Unexpected error extracting inline styles: {e}\n{format_exc()}")
             return {}
 
     def get_scripts(self) -> ScriptData:
