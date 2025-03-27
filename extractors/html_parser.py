@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from logging import getLogger, basicConfig, INFO, DEBUG, WARNING, ERROR, CRITICAL
 from traceback import format_exc
 from functools import lru_cache
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Setup logger with dynamic log level
 log_levels = {
@@ -99,28 +99,29 @@ class ScriptExtractor:
 
     def get_scripts(self) -> ScriptData:
         """Extracts inline JavaScript, external scripts, inline event handlers, and inline styles from HTML content."""
-        try:
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = {
-                    "inline_scripts": executor.submit(self.extract_inline_scripts),
-                    "external_scripts": executor.submit(self.extract_external_scripts),
-                    "event_handlers": executor.submit(self.extract_event_handlers),
-                    "inline_styles": executor.submit(self.extract_inline_styles),
-                }
+        with ThreadPoolExecutor() as executor:
+            futures = {
+                executor.submit(self.extract_inline_scripts): "inline_scripts",
+                executor.submit(self.extract_external_scripts): "external_scripts",
+                executor.submit(self.extract_event_handlers): "event_handlers",
+                executor.submit(self.extract_inline_styles): "inline_styles"
+            }
 
-                # Collect results from futures
-                results = {key: future.result() for key, future in futures.items()}
+            result = {}
+            for future in as_completed(futures):
+                try:
+                    key = futures[future]
+                    result[key] = future.result()
+                except Exception as e:
+                    logger.error(f"Error extracting {futures[future]}: {e}\n{format_exc()}")
+                    result[futures[future]] = []
 
             return ScriptData(
-                inline_scripts=results["inline_scripts"],
-                external_scripts=results["external_scripts"],
-                event_handlers=results["event_handlers"],
-                inline_styles=results["inline_styles"],
+                inline_scripts=result.get("inline_scripts", []),
+                external_scripts=result.get("external_scripts", []),
+                event_handlers=result.get("event_handlers", {}),
+                inline_styles=result.get("inline_styles", {})
             )
-
-        except Exception as e:
-            logger.error(f"Error extracting scripts: {e}\n{format_exc()}")
-            return ScriptData(inline_scripts=[], external_scripts=[], event_handlers={}, inline_styles={})
 
 # Example usage:
 # extractor = ScriptExtractor(html_content)
