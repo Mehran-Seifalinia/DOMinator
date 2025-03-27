@@ -8,7 +8,6 @@ from traceback import format_exc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html5lib import parse
 from functools import lru_cache
-from collections import defaultdict
 
 # Setup logger with dynamic log level
 log_levels = {
@@ -59,7 +58,6 @@ class ScriptData:
             f"Inline Styles: {sum(len(v) for v in self.inline_styles.values())} elements"
         )
 
-
 class ScriptExtractor:
     """Extracts inline scripts, external scripts, event handlers, and inline styles from HTML content."""
 
@@ -75,38 +73,31 @@ class ScriptExtractor:
         self.soup = BeautifulSoup(html, "html.parser")
 
     @lru_cache(thread_safe=True)
-    def extract_inline_scripts(self) -> List[str]:
-        """Extracts inline JavaScript from <script> tags."""
+    def extract_scripts(self, script_type: str, attr_name: str = "src") -> List[str]:
+        """General method to extract scripts based on type and attribute."""
         try:
-            scripts = [script.text.strip() for script in self.soup.find_all("script") if script.text.strip()]
+            if script_type == 'inline':
+                scripts = [script.text.strip() for script in self.soup.find_all("script") if script.text.strip()]
+            else:
+                scripts = [script.get(attr_name) for script in self.soup.find_all("script", src=True) if script.get(attr_name)]
+
             if not scripts:
-                logger.warning("No inline scripts found.")
+                logger.warning(f"No {script_type} scripts found.")
             return scripts
-        except AttributeError as e:
-            logger.error(f"Error extracting inline scripts due to attribute issue: {e}\n{format_exc()}")
-            return []
         except Exception as e:
-            logger.error(f"Unexpected error extracting inline scripts: {e}\n{format_exc()}")
+            logger.error(f"Unexpected error extracting {script_type} scripts: {e}\n{format_exc()}")
             return []
+
+    @lru_cache(thread_safe=True)
+    def extract_inline_scripts(self) -> List[str]:
+        return self.extract_scripts('inline')
 
     @lru_cache(thread_safe=True)
     def extract_external_scripts(self) -> List[str]:
-        """Extracts external <script> sources (src attributes)."""
-        try:
-            scripts = []
-            for script in self.soup.find_all("script", src=True):
-                src = script.get("src")
-                if src and src.strip():  # Ensure src is not empty or invalid
-                    scripts.append(src.strip())
-            if not scripts:
-                logger.warning("No external scripts found.")
-            return scripts
-        except Exception as e:
-            logger.error(f"Unexpected error extracting external scripts: {e}\n{format_exc()}")
-            return []
+        return self.extract_scripts('external')
 
     @lru_cache(thread_safe=True)
-    def extract_event_handlers(self) -> Dict[str, List[Dict[str, str]]:
+    def extract_event_handlers(self) -> Dict[str, List[Dict[str, str]]]:
         """Extracts inline event handlers (e.g., onclick, onmouseover) from HTML elements."""
         try:
             event_handlers = defaultdict(list)
