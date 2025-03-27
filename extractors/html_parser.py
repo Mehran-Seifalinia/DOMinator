@@ -4,6 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
 from logging import getLogger, basicConfig, INFO, DEBUG, WARNING, ERROR, CRITICAL
+from traceback import format_exc
 from functools import lru_cache
 
 # Setup logger with dynamic log level
@@ -51,10 +52,10 @@ class ScriptExtractor:
         try:
             return [script.text.strip() for script in self.soup.find_all("script") if script.text.strip()]
         except AttributeError as e:
-            logger.error(f"Error extracting inline scripts due to attribute issue: {e}")
+            logger.error(f"Error extracting inline scripts due to attribute issue: {e}\n{format_exc()}")
             return []
         except Exception as e:
-            logger.error(f"Error extracting inline scripts: {e}")
+            logger.error(f"Error extracting inline scripts: {e}\n{format_exc()}")
             return []
 
     @lru_cache
@@ -63,10 +64,10 @@ class ScriptExtractor:
         try:
             return [src.strip() for script in self.soup.find_all("script", src=True) if (src := script.get("src"))]
         except AttributeError as e:
-            logger.error(f"Error extracting external scripts due to attribute issue: {e}")
+            logger.error(f"Error extracting external scripts due to attribute issue: {e}\n{format_exc()}")
             return []
         except Exception as e:
-            logger.error(f"Error extracting external scripts: {e}")
+            logger.error(f"Error extracting external scripts: {e}\n{format_exc()}")
             return []
 
     @lru_cache
@@ -80,7 +81,7 @@ class ScriptExtractor:
                     event_handlers[tag.name].append(handlers)
             return dict(event_handlers)
         except Exception as e:
-            logger.error(f"Error extracting event handlers: {e}")
+            logger.error(f"Error extracting event handlers: {e}\n{format_exc()}")
             return {}
 
     @lru_cache
@@ -92,7 +93,7 @@ class ScriptExtractor:
                 styles[tag.name].append(tag["style"].strip())
             return dict(styles)
         except Exception as e:
-            logger.error(f"Error extracting inline styles: {e}")
+            logger.error(f"Error extracting inline styles: {e}\n{format_exc()}")
             return {}
 
     def get_scripts(self) -> ScriptData:
@@ -109,7 +110,7 @@ class ScriptExtractor:
                 inline_styles=inline_styles,
             )
         except Exception as e:
-            logger.error(f"Error extracting scripts: {e}")
+            logger.error(f"Error extracting scripts: {e}\n{format_exc()}")
             return ScriptData(inline_scripts=[], external_scripts=[], event_handlers={}, inline_styles={})
 
 # Example usage:
