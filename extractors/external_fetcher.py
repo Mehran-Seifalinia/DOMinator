@@ -164,13 +164,16 @@ class ExternalFetcher:
                     else:
                         tasks.append(self.fetch_script(session, url))
 
+                # Improved error handling in gathering
                 scripts: List[Union[None, Optional[str], Exception]] = await gather(*tasks, return_exceptions=True)
                 for url, script_content in zip(self.urls, scripts):
                     if isinstance(script_content, Exception):
+                        # Log the specific exception with the URL that caused it
                         logger.error(f"Error fetching {url}: {script_content}")
                     elif script_content:
                         await self.cache_script(url, script_content)
                         await self.process_script(script_content, url)
+
         except Exception as e:
             logger.error(f"Error in fetch_and_process_scripts: {e}")
         finally:
