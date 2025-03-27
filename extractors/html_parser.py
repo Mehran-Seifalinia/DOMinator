@@ -29,9 +29,13 @@ def validate_html(html: str) -> bool:
     try:
         parse(html)  # Try parsing the HTML
         return True
-    except Exception as e:
+    except ValueError as e:  # Handle specific exception for invalid HTML
         logger.error(f"Invalid HTML content: {e}")
         return False
+    except Exception as e:
+        logger.error(f"Unexpected error during HTML validation: {e}\n{format_exc()}")
+        return False
+
 
 @dataclass
 class ScriptData:
