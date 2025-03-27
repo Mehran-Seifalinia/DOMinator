@@ -7,6 +7,7 @@ from logging import getLogger, basicConfig, INFO, DEBUG, WARNING, ERROR, CRITICA
 from traceback import format_exc
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from html5lib import parse
 
 # Setup logger with dynamic log level
 log_levels = {
@@ -22,6 +23,15 @@ log_level = log_levels.get(log_level, INFO)
 
 basicConfig(level=log_level, format="%(levelname)s: %(message)s")
 logger = getLogger(__name__)
+
+def validate_html(html: str) -> bool:
+    """Validates the HTML content using html5lib."""
+    try:
+        parse(html)  # Try parsing the HTML
+        return True
+    except Exception as e:
+        logger.error(f"Invalid HTML content: {e}")
+        return False
 
 @dataclass
 class ScriptData:
@@ -45,6 +55,12 @@ class ScriptExtractor:
     def __init__(self, html: str):
         if not html or not isinstance(html, str) or not html.strip():
             raise ValueError("Invalid input: HTML content must be a non-empty string.")
+        
+        # Validate HTML content before processing
+        if not validate_html(html):
+            raise ValueError("Invalid HTML: The provided HTML is not valid.")
+        
+        # Now we can safely parse the HTML with BeautifulSoup
         self.soup = BeautifulSoup(html, "html.parser")
 
     @lru_cache
@@ -63,10 +79,12 @@ class ScriptExtractor:
     def extract_external_scripts(self) -> List[str]:
         """Extracts external <script> sources (src attributes)."""
         try:
-            return [src.strip() for script in self.soup.find_all("script", src=True) if (src := script.get("src"))]
-        except AttributeError as e:
-            logger.error(f"Error extracting external scripts due to attribute issue: {e}\n{format_exc()}")
-            return []
+            scripts = []
+            for script in self.soup.find_all("script", src=True):
+                src = script.get("src")
+                if src and src.strip():  # Ensure src is not empty or invalid
+                    scripts.append(src.strip())
+            return scripts
         except Exception as e:
             logger.error(f"Error extracting external scripts: {e}\n{format_exc()}")
             return []
