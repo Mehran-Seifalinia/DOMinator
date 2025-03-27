@@ -1,11 +1,11 @@
 from sys import argv
-from asyncio import run, Lock, gather
+from asyncio import Lock, gather, run
 from logging import getLogger, basicConfig, INFO
 from pathlib import Path
 from hashlib import sha256
 from re import findall
-from aiohttp import ClientSession, ClientTimeout
-from aiosqlite import connect
+from aiohttp import ClientSession
+from aiosqlite import connect, Connection
 from typing import List, Optional, Union, Dict
 
 DB_PATH = "scripts.db"
@@ -34,16 +34,16 @@ async def init_db() -> bool:
         return False
 
 class ExternalFetcher:
-    def __init__(self, urls: List[str], db_conn: Optional[aiosqlite.Connection] = None, proxy: Optional[str] = None, timeout: int = 10):
+    def __init__(self, urls: List[str], db_conn: Optional[Connection] = None, proxy: Optional[str] = None, timeout: int = 10):
         """
         Initializes the ExternalFetcher class with a list of URLs, an optional database connection,
         an optional proxy URL, and a timeout setting for requests.
         """
         self.urls: List[str] = urls
-        self.db_conn: Optional[aiosqlite.Connection] = db_conn
+        self.db_conn: Optional[Connection] = db_conn
         self.proxy: Optional[str] = proxy
         self.timeout: int = timeout
-        self._db_lock: Lock = asyncio.Lock()  # Ensures only one connection attempt at a time
+        self._db_lock: Lock = Lock()  # Ensures only one connection attempt at a time
 
     async def _connect_db(self) -> bool:
         """Connects to the SQLite database if not already connected."""
@@ -98,7 +98,7 @@ class ExternalFetcher:
                 if existing_hash and existing_hash[0] == content_hash:
                     logger.info(f"No changes in script for {url}, skipping cache update.")
                     return  # Skip if content hasn't changed
-                await cursor.execute("""
+                await cursor.execute(""" 
                 INSERT OR REPLACE INTO scripts (url, content_hash, content)
                 VALUES (?, ?, ?)""", (url, content_hash, content))
                 await self.db_conn.commit()
@@ -150,7 +150,8 @@ class ExternalFetcher:
     async def fetch_and_process_scripts(self) -> None:
         """Fetches and processes scripts, caching the results."""
         try:
-            await init_db()  # Initialize DB if necessary
+            if not self.db_conn:
+                await init_db()  # Initialize DB if necessary
             async with ClientSession() as session:
                 # Fetch cached scripts first
                 cached_scripts: List[Optional[str]] = await gather(*[self.get_cached_script(url) for url in self.urls])
@@ -190,4 +191,4 @@ if __name__ == "__main__":
         finally:
             await fetcher.close_db()
 
-    asyncio.run(main())
+    run(main())
