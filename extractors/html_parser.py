@@ -45,7 +45,7 @@ class ScriptExtractor:
             raise ValueError("Invalid input: HTML content must be a non-empty string.")
         self.soup = BeautifulSoup(html, "html.parser")
 
-    @lru_cache(maxsize=128)
+    @lru_cache
     def extract_inline_scripts(self) -> List[str]:
         """Extracts inline JavaScript from <script> tags."""
         try:
@@ -57,7 +57,7 @@ class ScriptExtractor:
             logger.error(f"Error extracting inline scripts: {e}")
             return []
 
-    @lru_cache(maxsize=128)
+    @lru_cache
     def extract_external_scripts(self) -> List[str]:
         """Extracts external <script> sources (src attributes)."""
         try:
@@ -69,7 +69,7 @@ class ScriptExtractor:
             logger.error(f"Error extracting external scripts: {e}")
             return []
 
-    @lru_cache(maxsize=128)
+    @lru_cache
     def extract_event_handlers(self) -> Dict[str, List[Dict[str, str]]]:
         """Extracts inline event handlers (e.g., onclick, onmouseover) from HTML elements."""
         try:
@@ -83,7 +83,7 @@ class ScriptExtractor:
             logger.error(f"Error extracting event handlers: {e}")
             return {}
 
-    @lru_cache(maxsize=128)
+    @lru_cache
     def extract_inline_styles(self) -> Dict[str, List[str]]:
         """Extracts inline styles from HTML elements."""
         try:
