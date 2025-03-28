@@ -114,16 +114,20 @@ class ScriptExtractor:
 
     @lru_cache()
     def extract_inline_styles(self) -> Dict[str, List[str]]:
-        """Extracts inline styles from HTML elements."""
+        """Extracts inline styles from HTML elements and <style> tags."""
         try:
             styles = defaultdict(list)
+            
             for tag in self.soup.find_all(style=True):
                 styles[tag.name].append(tag["style"].strip())
-            if not styles:
-                logger.warning("No inline styles found.")
+
+            for style_tag in self.soup.find_all("style"):
+                if style_tag.string:
+                    styles["style"].append(style_tag.string.strip())
+
             return dict(styles)
         except Exception as e:
-            logger.error(f"Unexpected error extracting inline styles: {e}\n{format_exc()}")
+            logger.error(f"Error extracting inline styles: {e}\n{format_exc()}")
             return {}
 
     def get_scripts(self) -> ScriptData:
