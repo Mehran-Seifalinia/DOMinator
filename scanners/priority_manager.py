@@ -37,8 +37,8 @@ class SecurityMechanisms(Enum):
     X_XSS_PROTECTION = "X-XSS-Protection"
 
 class PriorityManager:
-    def __init__(self):
-        self.normalization_factor = 100
+    def __init__(self, normalization_factor=100):
+        self.normalization_factor = normalization_factor
         
         self.risk_levels = {
             RiskLevel.EVAL: {"base": 10, "weight": 1.6},
@@ -95,22 +95,22 @@ class PriorityManager:
         return self.exploit_complexity.get(complexity, {"score": 0})["score"]
 
     def calculate_attack_vector_score(self, attack_vector):
-        attack_vector_data = self.attack_vectors.get(attack_vector, {"risk": 0, "multiplier": 1})
-        return attack_vector_data["risk"] * attack_vector_data["multiplier"]
+        data = self.attack_vectors.get(attack_vector)
+        return (data["risk"] * data["multiplier"]) if data else 0
 
     def calculate_combination_risk(self, methods):
-        return sum(risk * 1.2 for pair, risk in self.combination_risk.items() if set(pair).issubset(methods))
+        return sum(risk * 1.2 for pair, risk in self.combination_risk.items() if all(m in methods for m in pair))
 
-    def calculate_security_mechanisms_impact(self, mechanisms):
-        risk_reduction = sum(self.security_mechanisms.get(mech, {"risk_reduction": 0})["risk_reduction"] for mech in mechanisms or [])
-        return max(0.1, 1 - risk_reduction)
+    def calculate_security_mechanisms_impact(self, mechanisms=None):
+        mechanisms = mechanisms or []
+        return max(0.1, 1 - sum(self.security_mechanisms.get(m, {"risk_reduction": 0})["risk_reduction"] for m in mechanisms))
 
     def calculate_optimized_priority(self, methods, complexity, attack_vector=None, response_type=None, mechanisms=None):
         method_score = self.calculate_method_score(methods)
         complexity_score = self.calculate_complexity_score(complexity)
         attack_vector_score = self.calculate_attack_vector_score(attack_vector)
-        response_type_score = self.response_types.get(response_type, {"risk": 0, "multiplier": 1})
-        response_risk = response_type_score["risk"] * response_type_score["multiplier"]
+        response_type_data = self.response_types.get(response_type, {"risk": 0, "multiplier": 1})
+        response_risk = response_type_data["risk"] * response_type_data["multiplier"]
         combination_risk = self.calculate_combination_risk(methods)
         security_impact = self.calculate_security_mechanisms_impact(mechanisms)
 
