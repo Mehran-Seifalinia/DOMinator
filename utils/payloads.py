@@ -24,6 +24,7 @@ class Payloads:
         Initializes the Payloads class, creating an empty list of payloads.
         """
         self.payload_list: List[Dict[str, Union[str, PayloadType, Encoding]]] = []
+        self.payload_set: set = set()  # Set for quick lookups based on payload, type, and encoding
         self.logger = get_logger()  # Get the logger instance from utils/logger.py
         self.lock = Lock()  # For thread safety
 
@@ -38,37 +39,32 @@ class Payloads:
             result = [p for p in result if p["encoding"] == encoding]
         return result
 
-def add_payload(self, payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.NONE) -> None:
-    """
-    Adds a new payload to the payload list after validation.
-    """
-    if not self._is_valid_payload(payload):
-        self.logger.error(f"Invalid payload: {payload}")
-        raise ValueError(f"Invalid payload: {payload}")
-    
-    # Check uniqueness based on payload, type, and encoding
-    new_payload = {"type": payload_type, "payload": payload, "encoding": encoding}
-    if any(self._compare_payloads(p, new_payload) for p in self.payload_list):
-        self.logger.warning(f"Payload already exists: {payload}")
-        return
-    
-    # Validate PayloadType and Encoding
-    if payload_type not in PayloadType:
-        self.logger.error(f"Invalid PayloadType: {payload_type}")
-        raise ValueError(f"Invalid PayloadType: {payload_type}")
-    if encoding not in Encoding:
-        self.logger.error(f"Invalid Encoding: {encoding}")
-        raise ValueError(f"Invalid Encoding: {encoding}")
-    
-    self.payload_list.append(new_payload)
-    self.logger.info(f"Payload added: {payload}")
-
-def _compare_payloads(self, p1: Dict[str, Union[str, PayloadType, Encoding]], p2: Dict[str, Union[str, PayloadType, Encoding]]) -> bool:
-    """
-    Compares two payload dictionaries to check if they are the same.
-    """
-    return p1['payload'] == p2['payload'] and p1['type'] == p2['type'] and p1['encoding'] == p2['encoding']
-
+    def add_payload(self, payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.NONE) -> None:
+        """
+        Adds a new payload to the payload list after validation.
+        """
+        if not self._is_valid_payload(payload):
+            self.logger.error(f"Invalid payload: {payload}")
+            raise ValueError(f"Invalid payload: {payload}")
+        
+        # Check uniqueness based on payload, type, and encoding using the set
+        payload_key = (payload, payload_type, encoding)
+        if payload_key in self.payload_set:
+            self.logger.warning(f"Payload already exists: {payload}")
+            return
+        
+        # Validate PayloadType and Encoding
+        if payload_type not in PayloadType:
+            self.logger.error(f"Invalid PayloadType: {payload_type}")
+            raise ValueError(f"Invalid PayloadType: {payload_type}")
+        if encoding not in Encoding:
+            self.logger.error(f"Invalid Encoding: {encoding}")
+            raise ValueError(f"Invalid Encoding: {encoding}")
+        
+        new_payload = {"type": payload_type, "payload": payload, "encoding": encoding}
+        self.payload_list.append(new_payload)
+        self.payload_set.add(payload_key)  # Add to set for future uniqueness checks
+        self.logger.info(f"Payload added: {payload}")
 
     def update_payload(self, old_payload: str, new_payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.NONE) -> None:
         """
@@ -77,6 +73,9 @@ def _compare_payloads(self, p1: Dict[str, Union[str, PayloadType, Encoding]], p2
         for p in self.payload_list:
             if p['payload'] == old_payload and p['type'] == payload_type and p['encoding'] == encoding:
                 p['payload'] = new_payload
+                # Update the set to reflect the change
+                self.payload_set.remove((old_payload, payload_type, encoding))
+                self.payload_set.add((new_payload, payload_type, encoding))
                 self.logger.info(f"Payload updated: {old_payload} -> {new_payload}")
                 return
         self.logger.warning(f"Payload not found for update: {old_payload}")
@@ -88,6 +87,8 @@ def _compare_payloads(self, p1: Dict[str, Union[str, PayloadType, Encoding]], p2
         for p in self.payload_list:
             if p['payload'] == payload:
                 self.payload_list.remove(p)
+                # Remove from the set
+                self.payload_set.remove((p['payload'], p['type'], p['encoding']))
                 self.logger.info(f"Payload removed: {payload}")
                 return
         self.logger.warning(f"Payload not found for removal: {payload}")
@@ -116,6 +117,8 @@ def _compare_payloads(self, p1: Dict[str, Union[str, PayloadType, Encoding]], p2
         try:
             with open(file_path, 'r') as file:
                 self.payload_list = load(file)
+                # Rebuild the set after loading the file
+                self.payload_set = set((p['payload'], p['type'], p['encoding']) for p in self.payload_list)
             self.logger.info(f"Payloads loaded from {file_path}")
         except FileNotFoundError:
             self.logger.error(f"File not found: {file_path}")
