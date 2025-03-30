@@ -12,12 +12,10 @@ class RiskLevel(Enum):
     DOCUMENT_DOMAIN = "document.domain"
     DOCUMENT_REFERRER = "document.referrer"
 
-
 class ExploitComplexity(Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
-
 
 class AttackVector(Enum):
     URL = "url"
@@ -29,17 +27,14 @@ class AttackVector(Enum):
     INDEXED_DB = "indexedDB"
     FILE_API = "fileAPI"
 
-
 class ResponseType(Enum):
     HTML = "html"
     JSON = "json"
     XML = "xml"
 
-
 class SecurityMechanisms(Enum):
     CSP = "CSP"
     X_XSS_PROTECTION = "X-XSS-Protection"
-
 
 class PriorityManager:
     """Class to calculate priority score based on security risk factors."""
@@ -128,13 +123,37 @@ class PriorityManager:
             )
         )
 
-    def calculate_optimized_priority(self, methods, complexity, attack_vector=None, response_type=None, mechanisms=None):
+    def process_event_handlers(self, event_handlers):
+        """Process event handlers and assign risk levels based on handlers."""
+        methods = []
+        for handler in event_handlers:
+            if "onclick" in handler:
+                methods.append(RiskLevel.DOCUMENT_WRITE)
+            if "onload" in handler:
+                methods.append(RiskLevel.INNER_HTML)
+            # Add other event handler mappings here
+        return self.calculate_method_score(methods)
+
+    def process_dom_results(self, dom_results):
+        """Process DOM changes and calculate associated risks."""
+        methods = []
+        for result in dom_results:
+            if "<script>" in result or "javascript:" in result:
+                methods.append(RiskLevel.EVAL)
+        return self.calculate_method_score(methods)
+
+    def calculate_optimized_priority(self, methods, complexity, attack_vector=None, response_type=None, mechanisms=None, event_handlers=None, dom_results=None):
         """
         Calculate optimized priority score based on different risk factors.
         Returns a tuple of (final_priority_score, severity_level).
         """
         mechanisms = mechanisms or []
         method_score = self.calculate_method_score(methods)
+
+        # Calculate priority based on event handlers and DOM results
+        event_handler_score = self.process_event_handlers(event_handlers) if event_handlers else 0
+        dom_result_score = self.process_dom_results(dom_results) if dom_results else 0
+
         complexity_score = self.calculate_complexity_score(complexity)
         attack_vector_score = self.calculate_attack_vector_score(attack_vector)
 
@@ -145,7 +164,8 @@ class PriorityManager:
         security_impact = self.calculate_security_mechanisms_impact(mechanisms)
 
         total_score = (
-            method_score + complexity_score + attack_vector_score +
+            method_score + event_handler_score + dom_result_score +
+            complexity_score + attack_vector_score +
             response_risk + combination_risk
         ) * security_impact
 
