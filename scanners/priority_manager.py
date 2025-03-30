@@ -92,8 +92,8 @@ class PriorityManager:
                 risk += additional_risk
         return risk
 
-    def calculate_priority(self, methods, complexity, attack_vector=None):
-        """Calculate the final priority score based on multiple factors."""
+    def calculate_optimized_priority(self, methods, complexity, attack_vector=None):
+        """Optimized calculation of priority based on dynamic weights."""
         method_score = self.calculate_method_score(methods)
         complexity_score = self.calculate_complexity_score(complexity)
         attack_vector_score = self.calculate_attack_vector_score(attack_vector)
@@ -102,10 +102,18 @@ class PriorityManager:
         total_score = method_score + complexity_score + attack_vector_score + combination_risk
         risk_factor = self.exploit_complexity[complexity]["impact"] if complexity in self.exploit_complexity else 1
 
-        final_priority = total_score * risk_factor
-        
-        # Set threshold for serious threat
-        THRESHOLD = 50
-        if final_priority >= THRESHOLD:
-            return final_priority, "High priority"
-        return final_priority, "Normal priority"
+        # Apply dynamic weight optimization
+        weight_factor = 1 + (total_score / 100)  # Adjusting weight based on total score
+        final_priority = total_score * risk_factor * weight_factor
+
+        # Define thresholds for different levels of risk
+        if final_priority >= 80:
+            return final_priority, "Critical"
+        elif final_priority >= 60:
+            return final_priority, "High"
+        elif final_priority >= 40:
+            return final_priority, "Medium"
+        elif final_priority >= 20:
+            return final_priority, "Low"
+        else:
+            return final_priority, "Informative"
