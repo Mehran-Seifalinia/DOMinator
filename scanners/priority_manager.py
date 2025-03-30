@@ -25,7 +25,7 @@ class AttackVector(Enum):
     LOCAL_STORAGE = "localStorage"
     SESSION_STORAGE = "sessionStorage"
     INDEXED_DB = "indexedDB"
-    FILE_API = "fileAPI" 
+    FILE_API = "fileAPI"
 
 class ResponseType(Enum):
     HTML = "html"
@@ -87,20 +87,17 @@ class PriorityManager:
         }
 
     def calculate_method_score(self, methods):
-        total_score = sum(self.risk_levels[method]["base"] * self.risk_levels[method]["weight"] for method in methods if method in self.risk_levels)
-        return total_score
+        return sum(self.risk_levels[method]["base"] * self.risk_levels[method]["weight"] for method in methods if method in self.risk_levels)
 
     def calculate_complexity_score(self, complexity):
         return self.exploit_complexity.get(complexity, {"score": 0})["score"]
 
     def calculate_attack_vector_score(self, attack_vector):
-        if attack_vector:
-            return self.attack_vectors.get(attack_vector, {"risk": 0, "multiplier": 1})["risk"] * \
-                   self.attack_vectors.get(attack_vector, {"risk": 1, "multiplier": 1})["multiplier"]
-        return 0
+        attack_vector_data = self.attack_vectors.get(attack_vector, {"risk": 0, "multiplier": 1})
+        return attack_vector_data["risk"] * attack_vector_data["multiplier"]
 
     def calculate_combination_risk(self, methods):
-        return sum(risk for pair, risk in self.combination_risk.items() if set(pair).issubset(methods))
+        return sum(risk * 1.2 for pair, risk in self.combination_risk.items() if set(pair).issubset(methods))
 
     def calculate_security_mechanisms_impact(self, mechanisms):
         risk_reduction = sum(self.security_mechanisms[mech]["risk_reduction"] for mech in mechanisms if mech in self.security_mechanisms)
@@ -115,7 +112,7 @@ class PriorityManager:
 
         total_score = (method_score + complexity_score + attack_vector_score + combination_risk) * security_impact
         risk_factor = self.exploit_complexity.get(complexity, {"impact": 1})["impact"]
-        weight_factor = 1 + (total_score / 120)
+        weight_factor = 1 + (total_score / self.normalization_factor)
 
         final_priority = total_score * risk_factor * weight_factor
 
