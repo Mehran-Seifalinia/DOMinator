@@ -3,26 +3,13 @@ from typing import Dict, List
 from collections import defaultdict
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
-from logging import getLogger, basicConfig, INFO, DEBUG, WARNING, ERROR, CRITICAL
+from utils.logger import get_logger
 from traceback import format_exc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html5lib import parse
 from functools import lru_cache
 
-# Setup logger with dynamic log level
-log_levels = {
-    "DEBUG": DEBUG,
-    "INFO": INFO,
-    "WARNING": WARNING,
-    "ERROR": ERROR,
-    "CRITICAL": CRITICAL
-}
-
-log_level = getenv("LOG_LEVEL", "INFO").upper()
-log_level = log_levels.get(log_level, INFO)
-
-basicConfig(level=log_level, format="%(levelname)s: %(message)s")
-logger = getLogger(__name__)
+logger = get_logger()
 
 def validate_html(html: str) -> bool:
     """Validates the HTML content using html5lib."""
