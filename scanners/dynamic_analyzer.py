@@ -24,6 +24,7 @@ class DynamicAnalyzer:
         extractor = EventHandlerExtractor(self.html_content)
         event_handlers = extractor.extract_event_handlers()
         logger.info(f"Extracted event handlers: {event_handlers}")
+        self.priority_manager.process_results({"event_handlers": event_handlers})
         return event_handlers
 
     async def fetch_and_analyze_external_scripts(self) -> None:
@@ -39,12 +40,9 @@ class DynamicAnalyzer:
             browser = await p.chromium.launch(headless=True)
             async with browser.new_context() as context:
                 async with context.new_page() as page:
-
                     logger.info("Executing HTML in a real browser environment...")
                     await page.set_content(self.html_content)
-
-                    # Scan the DOM for suspicious changes
-                    dom_changes = await page.evaluate("""
+                    dom_changes = await page.evaluate(""" 
                         () => {
                             let xss_detected = [];
                             document.querySelectorAll('*').forEach(el => {
@@ -55,28 +53,18 @@ class DynamicAnalyzer:
                             return xss_detected;
                         }
                     """)
-
                     results["dom_changes"] = dom_changes
-        
+                    self.priority_manager.process_results({"dom_results": dom_changes})
+
         logger.info(f"Dynamic analysis results: {results}")
         return results
 
     async def run_analysis(self) -> None:
         """Run the full dynamic analysis process"""
         logger.info("Starting dynamic analysis...")
-
-        # Analyze event handlers
         event_handlers = self.analyze_event_handlers()
-        self.priority_manager.process_results({"event_handlers": event_handlers})
-
-        # Fetch and analyze external scripts
         await self.fetch_and_analyze_external_scripts()
-
-        # Execute HTML in a real browser
         dom_results = await self.execute_in_browser()
-        self.priority_manager.process_results({"dom_results": dom_results})
-
-        # Store results in cache
         self.cache_manager.save_results("dynamic_analysis", {"event_handlers": event_handlers, "dom_results": dom_results})
 
 if __name__ == "__main__":
