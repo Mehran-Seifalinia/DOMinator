@@ -76,10 +76,14 @@ class Payloads:
 
     def remove_payload(self, payload: str) -> None:
         """
-        Removes a payload from the payload list.
+        Removes the first occurrence of a payload from the payload list.
         """
-        self.payload_list = [p for p in self.payload_list if p['payload'] != payload]
-        self.logger.info(f"Payload removed: {payload}")
+        for p in self.payload_list:
+            if p['payload'] == payload:
+                self.payload_list.remove(p)
+                self.logger.info(f"Payload removed: {payload}")
+                return
+        self.logger.warning(f"Payload not found for removal: {payload}")
 
     def _is_valid_payload(self, payload: str) -> bool:
         """
