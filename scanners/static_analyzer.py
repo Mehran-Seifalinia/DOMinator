@@ -1,5 +1,5 @@
 from re import compile
-from logging import getLogger, basicConfig, INFO, DEBUG, WARNING, ERROR, CRITICAL
+from utils.logger import get_logger
 from requests import get, Response
 from os import getenv
 from typing import Dict, List, Tuple, Optional, TypedDict
@@ -7,27 +7,8 @@ from dataclasses import dataclass
 from bs4 import BeautifulSoup
 from priority_manager import calculate_priority
 
-# Define logger
-logger = getLogger(__name__)
+logger = get_logger()
 
-# Setup logger with dynamic log level
-log_level = getenv("LOG_LEVEL", "INFO").upper()
-if log_level not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
-    log_level = "INFO"
-    logger.warning(f"Invalid log level: {log_level}, falling back to INFO")
-
-# Map log level string to logging constants
-log_level_map = {
-    "DEBUG": DEBUG,
-    "INFO": INFO,
-    "WARNING": WARNING,
-    "ERROR": ERROR,
-    "CRITICAL": CRITICAL
-}
-
-basicConfig(level=log_level_map.get(log_level, INFO), format="%(levelname)s: %(message)s")
-
-# Precompiled regex patterns for better performance
 dangerous_patterns = [
     compile(r"(?i)\beval\s*\("),
     compile(r"(?i)\bFunction\s*\("),
@@ -47,14 +28,13 @@ dangerous_patterns = [
 
 dangerous_html_patterns = [
     compile(r"(?i)on\w+\s*="),
-    compile(r"(?i)javascript\s*:"),
+    compile(r"(?i)javascript\s*:"), 
     compile(r"(?i)data\s*:\s*text\s*/\s*html"),
     compile(r"(?i)<\s*script[^>]*>.*<\s*/\s*script\s*>"),
     compile(r"(?i)<\s*iframe[^>]*>.*<\s*/\s*iframe\s*>"),
     compile(r"(?i)<\s*object\s*data\s*=\s*['\"].*['\"]\s*>"),
 ]
 
-# Define risk levels for different patterns
 RISK_LEVELS = {
     'eval': 'high',
     'Function': 'high',
@@ -63,7 +43,6 @@ RISK_LEVELS = {
 }
 
 def assess_risk(pattern: str) -> str:
-    """Assesses the risk level based on the matched pattern."""
     return RISK_LEVELS.get(pattern.lower(), 'unknown')
 
 class Occurrence(TypedDict):
@@ -72,7 +51,7 @@ class Occurrence(TypedDict):
     pattern: str
     context: str
     risk_level: str
-    priority: str  # Added priority field
+    priority: str
 
 @dataclass
 class ScriptData:
@@ -83,10 +62,7 @@ class ScriptData:
     dangerous_occurrences: List[Occurrence]
 
 class StaticAnalyzer:
-    """Extracts scripts, event handlers, inline styles, and dangerous patterns from HTML content."""
-
     def __init__(self, html: str):
-        """Initializes the analyzer with the provided HTML content."""
         if not html or not isinstance(html, str) or not html.strip():
             raise ValueError("Invalid input: HTML content must be a non-empty string.")
         try:
@@ -96,7 +72,6 @@ class StaticAnalyzer:
             self.soup = None
 
     def fetch_external_script(self, url: str) -> Optional[str]:
-        """Fetches external JavaScript content while using a cache to avoid duplicate requests."""
         if not hasattr(self, "_script_cache"):
             self._script_cache = {}
         
@@ -116,16 +91,13 @@ class StaticAnalyzer:
             return None
 
     def detect_dangerous_patterns(self) -> List[Occurrence]:
-        """Detects dangerous JavaScript functions and HTML attributes with positions."""
         occurrences = []
 
-        # Check inline scripts for dangerous patterns
         for script in self.soup.find_all("script"):
             if script.text.strip():
                 for pattern in dangerous_patterns:
                     for match in pattern.finditer(script.text):
                         risk_level = assess_risk(match.group())
-                        # Calculate priority based on risk level
                         priority = calculate_priority(risk_level)
                         occurrences.append({
                             "line": script.sourceline,
@@ -133,19 +105,17 @@ class StaticAnalyzer:
                             "pattern": match.group(),
                             "context": script.text[max(0, match.start()-20):match.end()+20],
                             "risk_level": risk_level,
-                            "priority": priority  # Add priority to occurrence
+                            "priority": priority
                         })
 
-        # Check HTML attributes for dangerous patterns
         for tag in self.soup.find_all(True):
             for attr, value in tag.attrs.items():
                 if 'href' in attr or 'src' in attr:
                     if 'javascript:' in str(value).lower() or 'data:text/html' in str(value).lower():
-                        continue  # Skip javascript and data URIs
+                        continue
                 for pattern in dangerous_html_patterns:
                     if pattern.search(attr) or pattern.search(str(value)):
                         risk_level = assess_risk(attr)
-                        # Calculate priority based on risk level
                         priority = calculate_priority(risk_level)
                         occurrences.append({
                             "line": tag.sourceline,
@@ -156,7 +126,6 @@ class StaticAnalyzer:
                             "priority": priority
                         })
 
-        # Reduce false positives by combining matching patterns
         refined_occurrences = []
         seen_patterns = set()
         for occurrence in occurrences:
@@ -167,7 +136,6 @@ class StaticAnalyzer:
         return refined_occurrences
 
     def analyze(self) -> ScriptData:
-        """Extracts all relevant script-related data from HTML content."""
         try:
             return ScriptData(
                 inline_scripts=self.extract_inline_scripts(),
@@ -181,7 +149,6 @@ class StaticAnalyzer:
             return ScriptData(inline_scripts=[], external_scripts=[], event_handlers={}, inline_styles={}, dangerous_occurrences=[])
 
     def extract_inline_scripts(self) -> List[Tuple[int, str]]:
-        """Extracts inline scripts from the HTML."""
         inline_scripts = []
         for script in self.soup.find_all("script"):
             if script.text.strip():
@@ -189,14 +156,12 @@ class StaticAnalyzer:
         return inline_scripts
 
     def extract_external_scripts(self) -> List[str]:
-        """Extracts external script URLs from the HTML."""
         external_scripts = []
         for script in self.soup.find_all("script", src=True):
             external_scripts.append(script["src"])
         return external_scripts
 
     def extract_event_handlers(self) -> Dict[str, List[Tuple[int, str]]]:
-        """Extracts inline event handlers like onClick, onError, etc., and stores them with line numbers."""
         event_handlers = {}
         for tag in self.soup.find_all(True):
             for attr, value in tag.attrs.items():
@@ -205,7 +170,6 @@ class StaticAnalyzer:
         return event_handlers
     
     def extract_inline_styles(self) -> Dict[str, List[str]]:
-        """Extracts inline styles from the HTML and stores them in a dictionary."""
         inline_styles = {}
         for tag in self.soup.find_all(style=True):
             inline_styles.setdefault(tag.name, []).append(tag["style"])
