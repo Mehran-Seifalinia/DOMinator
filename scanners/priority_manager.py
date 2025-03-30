@@ -38,6 +38,8 @@ class SecurityMechanisms(Enum):
 
 class PriorityManager:
     def __init__(self):
+        self.normalization_factor = 100
+        
         self.risk_levels = {
             RiskLevel.EVAL: {"base": 10, "weight": 1.6},
             RiskLevel.DOCUMENT_WRITE: {"base": 9, "weight": 1.5},
@@ -100,17 +102,19 @@ class PriorityManager:
         return sum(risk * 1.2 for pair, risk in self.combination_risk.items() if set(pair).issubset(methods))
 
     def calculate_security_mechanisms_impact(self, mechanisms):
-        risk_reduction = sum(self.security_mechanisms[mech]["risk_reduction"] for mech in mechanisms if mech in self.security_mechanisms)
+        risk_reduction = sum(self.security_mechanisms.get(mech, {"risk_reduction": 0})["risk_reduction"] for mech in mechanisms or [])
         return max(0.1, 1 - risk_reduction)
 
-    def calculate_optimized_priority(self, methods, complexity, attack_vector=None, mechanisms=None):
+    def calculate_optimized_priority(self, methods, complexity, attack_vector=None, response_type=None, mechanisms=None):
         method_score = self.calculate_method_score(methods)
         complexity_score = self.calculate_complexity_score(complexity)
         attack_vector_score = self.calculate_attack_vector_score(attack_vector)
+        response_type_score = self.response_types.get(response_type, {"risk": 0, "multiplier": 1})
+        response_risk = response_type_score["risk"] * response_type_score["multiplier"]
         combination_risk = self.calculate_combination_risk(methods)
-        security_impact = self.calculate_security_mechanisms_impact(mechanisms or [])
+        security_impact = self.calculate_security_mechanisms_impact(mechanisms)
 
-        total_score = (method_score + complexity_score + attack_vector_score + combination_risk) * security_impact
+        total_score = (method_score + complexity_score + attack_vector_score + response_risk + combination_risk) * security_impact
         risk_factor = self.exploit_complexity.get(complexity, {"impact": 1})["impact"]
         weight_factor = 1 + (total_score / self.normalization_factor)
 
