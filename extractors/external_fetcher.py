@@ -1,6 +1,6 @@
 from sys import argv
 from asyncio import Lock, gather, run
-from logging import getLogger, basicConfig, INFO
+from utils.logger import get_logger
 from pathlib import Path
 from hashlib import sha256
 from re import findall
@@ -10,9 +10,8 @@ from typing import List, Optional, Union, Dict
 
 DB_PATH = "scripts.db"
 
-# Set up logging
-logger = getLogger(__name__)
-basicConfig(level=INFO)
+# Set up logging (use get_logger instead of basicConfig)
+logger = get_logger()
 
 async def init_db() -> bool:
     """Initializes the SQLite database for caching scripts asynchronously."""
@@ -193,5 +192,5 @@ if __name__ == "__main__":
             await fetcher.fetch_and_process_scripts()
         finally:
             await fetcher.close_db()
-
+    
     run(main())
