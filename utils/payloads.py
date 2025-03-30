@@ -1,4 +1,4 @@
-import json
+from json import dump, load, JSONDecodeError
 from enum import Enum
 from typing import List, Optional, Dict, Union
 from threading import Lock
@@ -93,7 +93,7 @@ class Payloads:
         """
         try:
             with open(file_path, 'w') as file:
-                json.dump(self.payload_list, file, default=str)
+                dump(self.payload_list, file, default=str)
             self.logger.info(f"Payloads saved to {file_path}")
         except Exception as e:
             self.logger.error(f"Error saving payloads to file {file_path}: {e}")
@@ -104,11 +104,11 @@ class Payloads:
         """
         try:
             with open(file_path, 'r') as file:
-                self.payload_list = json.load(file)
+                self.payload_list = load(file)
             self.logger.info(f"Payloads loaded from {file_path}")
         except FileNotFoundError:
             self.logger.error(f"File not found: {file_path}")
-        except json.JSONDecodeError:
+        except JSONDecodeError:
             self.logger.error(f"Error decoding JSON from file: {file_path}")
         except Exception as e:
             self.logger.error(f"Error loading payloads from file: {e}")
