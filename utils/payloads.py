@@ -38,30 +38,37 @@ class Payloads:
             result = [p for p in result if p["encoding"] == encoding]
         return result
 
-    def add_payload(self, payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.NONE) -> None:
-        """
-        Adds a new payload to the payload list after validation.
-        """
-        if not self._is_valid_payload(payload):
-            self.logger.error(f"Invalid payload: {payload}")
-            raise ValueError(f"Invalid payload: {payload}")
-        
-        # Check uniqueness based on payload, type, and encoding
-        if any(p['payload'] == payload and p['type'] == payload_type and p['encoding'] == encoding for p in self.payload_list):
-            self.logger.warning(f"Payload already exists: {payload}")
-            return
-        
-        # Validate PayloadType and Encoding
-        if payload_type not in PayloadType:
-            self.logger.error(f"Invalid PayloadType: {payload_type}")
-            raise ValueError(f"Invalid PayloadType: {payload_type}")
-        if encoding not in Encoding:
-            self.logger.error(f"Invalid Encoding: {encoding}")
-            raise ValueError(f"Invalid Encoding: {encoding}")
-        
-        new_payload = {"type": payload_type, "payload": payload, "encoding": encoding}
-        self.payload_list.append(new_payload)
-        self.logger.info(f"Payload added: {payload}")
+def add_payload(self, payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.NONE) -> None:
+    """
+    Adds a new payload to the payload list after validation.
+    """
+    if not self._is_valid_payload(payload):
+        self.logger.error(f"Invalid payload: {payload}")
+        raise ValueError(f"Invalid payload: {payload}")
+    
+    # Check uniqueness based on payload, type, and encoding
+    new_payload = {"type": payload_type, "payload": payload, "encoding": encoding}
+    if any(self._compare_payloads(p, new_payload) for p in self.payload_list):
+        self.logger.warning(f"Payload already exists: {payload}")
+        return
+    
+    # Validate PayloadType and Encoding
+    if payload_type not in PayloadType:
+        self.logger.error(f"Invalid PayloadType: {payload_type}")
+        raise ValueError(f"Invalid PayloadType: {payload_type}")
+    if encoding not in Encoding:
+        self.logger.error(f"Invalid Encoding: {encoding}")
+        raise ValueError(f"Invalid Encoding: {encoding}")
+    
+    self.payload_list.append(new_payload)
+    self.logger.info(f"Payload added: {payload}")
+
+def _compare_payloads(self, p1: Dict[str, Union[str, PayloadType, Encoding]], p2: Dict[str, Union[str, PayloadType, Encoding]]) -> bool:
+    """
+    Compares two payload dictionaries to check if they are the same.
+    """
+    return p1['payload'] == p2['payload'] and p1['type'] == p2['type'] and p1['encoding'] == p2['encoding']
+
 
     def update_payload(self, old_payload: str, new_payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.NONE) -> None:
         """
