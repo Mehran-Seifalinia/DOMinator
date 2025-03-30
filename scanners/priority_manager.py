@@ -39,42 +39,60 @@ class SecurityMechanisms(Enum):
 
 class PriorityManager:
     def __init__(self):
-        # Risk levels for different methods
+        # Risk levels for different methods (higher base means higher risk)
         self.risk_levels = {
-            RiskLevel.EVAL: {"base": 9, "weight": 1.5},
-            RiskLevel.DOCUMENT_WRITE: {"base": 8, "weight": 1.3},
-            RiskLevel.INNER_HTML: {"base": 7, "weight": 1.2},
+            RiskLevel.EVAL: {"base": 10, "weight": 1.6},
+            RiskLevel.DOCUMENT_WRITE: {"base": 9, "weight": 1.5},
+            RiskLevel.INNER_HTML: {"base": 8, "weight": 1.4},
             RiskLevel.SET_TIMEOUT: {"base": 6, "weight": 1.1},
             RiskLevel.SET_INTERVAL: {"base": 6, "weight": 1.1},
             RiskLevel.LOCATION: {"base": 5, "weight": 1.0},
             RiskLevel.COOKIE: {"base": 4, "weight": 1.0},
-            RiskLevel.WEB_SOCKET: {"base": 3, "weight": 0.8}
+            RiskLevel.WEB_SOCKET: {"base": 4, "weight": 1.0},
+            RiskLevel.DOCUMENT_DOMAIN: {"base": 7, "weight": 1.4},
+            RiskLevel.DOCUMENT_REFERRER: {"base": 6, "weight": 1.3}
         }
-        
+
         # Exploit complexity levels and their impact
         self.exploit_complexity = {
-            ExploitComplexity.LOW: {"score": 3, "impact": 1.5},
+            ExploitComplexity.LOW: {"score": 3, "impact": 1.6},
             ExploitComplexity.MEDIUM: {"score": 2, "impact": 1.2},
-            ExploitComplexity.HIGH: {"score": 1, "impact": 1.0}
+            ExploitComplexity.HIGH: {"score": 1, "impact": 0.8}
         }
 
         # Attack vector risks and multipliers
         self.attack_vectors = {
             AttackVector.URL: {"risk": 3, "multiplier": 1.2},
-            AttackVector.REFERRER: {"risk": 2, "multiplier": 1.1},
-            AttackVector.WINDOW_NAME: {"risk": 2, "multiplier": 1.0},
+            AttackVector.REFERRER: {"risk": 2, "multiplier": 1.0},
+            AttackVector.WINDOW_NAME: {"risk": 3, "multiplier": 1.1},
             AttackVector.POST_MESSAGE: {"risk": 4, "multiplier": 1.3},
             AttackVector.LOCAL_STORAGE: {"risk": 5, "multiplier": 1.4},
-            AttackVector.SESSION_STORAGE: {"risk": 4, "multiplier": 1.3}
+            AttackVector.SESSION_STORAGE: {"risk": 4, "multiplier": 1.3},
+            AttackVector.INDEXED_DB: {"risk": 5, "multiplier": 1.5},
+            AttackVector.FILE_API: {"risk": 4, "multiplier": 1.4}
         }
-        
+
+        # Response type risks and multipliers
+        self.response_types = {
+            ResponseType.HTML: {"risk": 6, "multiplier": 1.5},
+            ResponseType.JSON: {"risk": 3, "multiplier": 1.2},
+            ResponseType.XML: {"risk": 4, "multiplier": 1.3}
+        }
+
+        # Security mechanisms and their impact on risk
+        self.security_mechanisms = {
+            SecurityMechanisms.CSP: {"risk_reduction": 0.7},
+            SecurityMechanisms.X_XSS_PROTECTION: {"risk_reduction": 0.5}
+        }
+
         # Combination risks for specific method pairs
         self.combination_risk = {
-            (RiskLevel.EVAL, RiskLevel.DOCUMENT_WRITE): 2,
-            (RiskLevel.INNER_HTML, RiskLevel.SET_TIMEOUT): 1,
+            (RiskLevel.EVAL, RiskLevel.DOCUMENT_WRITE): 3,
+            (RiskLevel.INNER_HTML, RiskLevel.SET_TIMEOUT): 2,
             (RiskLevel.COOKIE, RiskLevel.LOCATION): 1,
-            (RiskLevel.LOCAL_STORAGE, RiskLevel.POST_MESSAGE): 2
+            (RiskLevel.LOCAL_STORAGE, RiskLevel.POST_MESSAGE): 3
         }
+
 
     def calculate_method_score(self, methods):
         """Calculate total score based on methods used."""
@@ -117,7 +135,7 @@ class PriorityManager:
         risk_factor = self.exploit_complexity[complexity]["impact"] if complexity in self.exploit_complexity else 1
 
         # Apply dynamic weight optimization
-        weight_factor = 1 + (total_score / 100)  # Adjusting weight based on total score
+        weight_factor = 1 + (total_score / 100)
         final_priority = total_score * risk_factor * weight_factor
 
         # Define thresholds for different levels of risk
