@@ -9,6 +9,8 @@ class RiskLevel(Enum):
     LOCATION = "location"
     COOKIE = "cookie"
     WEB_SOCKET = "webSocket"
+    DOCUMENT_DOMAIN = "document.domain"
+    DOCUMENT_REFERRER = "document.referrer"
 
 class ExploitComplexity(Enum):
     LOW = "low"
@@ -22,6 +24,18 @@ class AttackVector(Enum):
     POST_MESSAGE = "postMessage"
     LOCAL_STORAGE = "localStorage"
     SESSION_STORAGE = "sessionStorage"
+    INDEXED_DB = "indexedDB"
+    FILE_API = "fileAPI" 
+
+class ResponseType(Enum):
+    HTML = "html"
+    JSON = "json"
+    XML = "xml"
+
+class SecurityMechanisms(Enum):
+    CSP = "CSP"
+    X_XSS_PROTECTION = "X-XSS-Protection"
+
 
 class PriorityManager:
     def __init__(self):
