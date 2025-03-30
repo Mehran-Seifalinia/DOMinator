@@ -1,16 +1,15 @@
 from asyncio import run
 from typing import List, Dict
-from logging import getLogger, basicConfig, INFO
 from playwright.async_api import async_playwright
 
 from extractors.event_handler_extractor import EventHandlerExtractor
 from extractors.external_fetcher import ExternalFetcher
 from scanners.priority_manager import PriorityManager
 from utils.caching import CacheManager
+from utils.logger import get_logger
 
-# Configure logging
-basicConfig(level=INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = getLogger(__name__)
+# Get the logger instance from logger.py
+logger = get_logger()
 
 class DynamicAnalyzer:
     def __init__(self, html_content: str, external_urls: List[str]):
