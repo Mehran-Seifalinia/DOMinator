@@ -5,6 +5,7 @@ from os import getenv
 from typing import Dict, List, Tuple, Optional, TypedDict
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
+from priority_manager import calculate_priority
 
 # Define logger
 logger = getLogger(__name__)
@@ -28,29 +29,29 @@ basicConfig(level=log_level_map.get(log_level, INFO), format="%(levelname)s: %(m
 
 # Precompiled regex patterns for better performance
 dangerous_patterns = [
-    compile(r"(?i)\beval\s*\("),  # \b ensures that we match only the word "eval"
+    compile(r"(?i)\beval\s*\("),
     compile(r"(?i)\bFunction\s*\("),
     compile(r"(?i)window\s*\[\s*['\"]eval['\"]\s*\]"),
     compile(r"(?i)\(\s*\d+\s*,\s*eval\s*\)"),
     compile(r"(?i)\.eval\s*\("),
     compile(r"(?i)\.(innerHTML|outerHTML|innerText|outerText)\s*="),
-    compile(r"(?i)document\.(write|writeln|open)\s*\("),  # Added open() as it's dangerous
+    compile(r"(?i)document\.(write|writeln|open)\s*\("),
     compile(r"(?i)(setTimeout|setInterval)\s*\("),
     compile(r"(?i)new\s+(ActiveXObject|XMLHttpRequest)\s*\("),
-    compile(r"(?i)document\.cookie\s*="),  # Detect potential XSS or CSRF issues
+    compile(r"(?i)document\.cookie\s*="),
     compile(r"(?i)localStorage\s*=",),
     compile(r"(?i)sessionStorage\s*=",),
-    compile(r"(?i)window\.location\s*="),  # Sensitive location access
-    compile(r"(?i)fetch\s*\("),  # Detect potential AJAX requests
+    compile(r"(?i)window\.location\s*="), 
+    compile(r"(?i)fetch\s*\("),
 ]
 
 dangerous_html_patterns = [
     compile(r"(?i)on\w+\s*="),
-    compile(r"(?i)javascript\s*:"),  # Avoid javascript: in href or src
-    compile(r"(?i)data\s*:\s*text\s*/\s*html"),  # Avoid data:text/html
+    compile(r"(?i)javascript\s*:"),
+    compile(r"(?i)data\s*:\s*text\s*/\s*html"),
     compile(r"(?i)<\s*script[^>]*>.*<\s*/\s*script\s*>"),
-    compile(r"(?i)<\s*iframe[^>]*>.*<\s*/\s*iframe\s*>"),  # Iframe injection
-    compile(r"(?i)<\s*object\s*data\s*=\s*['\"].*['\"]\s*>"),  # Object tag with external resources
+    compile(r"(?i)<\s*iframe[^>]*>.*<\s*/\s*iframe\s*>"),
+    compile(r"(?i)<\s*object\s*data\s*=\s*['\"].*['\"]\s*>"),
 ]
 
 # Define risk levels for different patterns
@@ -71,6 +72,7 @@ class Occurrence(TypedDict):
     pattern: str
     context: str
     risk_level: str
+    priority: str  # Added priority field
 
 @dataclass
 class ScriptData:
@@ -122,29 +124,36 @@ class StaticAnalyzer:
             if script.text.strip():
                 for pattern in dangerous_patterns:
                     for match in pattern.finditer(script.text):
+                        risk_level = assess_risk(match.group())
+                        # Calculate priority based on risk level
+                        priority = calculate_priority(risk_level)
                         occurrences.append({
                             "line": script.sourceline,
                             "column": match.start(),
                             "pattern": match.group(),
                             "context": script.text[max(0, match.start()-20):match.end()+20],
-                            "risk_level": assess_risk(match.group())
+                            "risk_level": risk_level,
+                            "priority": priority  # Add priority to occurrence
                         })
 
         # Check HTML attributes for dangerous patterns
         for tag in self.soup.find_all(True):
             for attr, value in tag.attrs.items():
-                # Avoid triggering on non-executable attributes or harmless cases
                 if 'href' in attr or 'src' in attr:
                     if 'javascript:' in str(value).lower() or 'data:text/html' in str(value).lower():
                         continue  # Skip javascript and data URIs
                 for pattern in dangerous_html_patterns:
                     if pattern.search(attr) or pattern.search(str(value)):
+                        risk_level = assess_risk(attr)
+                        # Calculate priority based on risk level
+                        priority = calculate_priority(risk_level)
                         occurrences.append({
                             "line": tag.sourceline,
                             "column": 0,
                             "pattern": attr,
                             "context": f"{tag.name} {attr}={value[:50]}...",
-                            "risk_level": assess_risk(attr)
+                            "risk_level": risk_level,
+                            "priority": priority
                         })
 
         # Reduce false positives by combining matching patterns
@@ -189,16 +198,15 @@ class StaticAnalyzer:
     def extract_event_handlers(self) -> Dict[str, List[Tuple[int, str]]]:
         """Extracts inline event handlers like onClick, onError, etc., and stores them with line numbers."""
         event_handlers = {}
-        for tag in self.soup.find_all(True):  # Iterate through all tags
+        for tag in self.soup.find_all(True):
             for attr, value in tag.attrs.items():
-                if attr.startswith("on"):  # If attribute starts with "on" (event handler)
-                    event_handlers.setdefault(attr, []).append((tag.sourceline, value))  # Store in dict with line number
+                if attr.startswith("on"):
+                    event_handlers.setdefault(attr, []).append((tag.sourceline, value))
         return event_handlers
     
     def extract_inline_styles(self) -> Dict[str, List[str]]:
         """Extracts inline styles from the HTML and stores them in a dictionary."""
         inline_styles = {}
         for tag in self.soup.find_all(style=True):
-            # For each tag with inline style, store the styles in a dictionary
             inline_styles.setdefault(tag.name, []).append(tag["style"])
         return inline_styles
