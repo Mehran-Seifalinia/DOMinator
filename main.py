@@ -32,10 +32,10 @@ def validate_url(url):
         raise ValueError(f"Invalid URL format: {url}")
     return url
 
-# Fetch the URL content
+# Fetch the URL content with timeout for safety
 def get_url(url, force):
     try:
-        response = get(url)
+        response = get(url, timeout=10)  # 10 seconds timeout
         response.raise_for_status()
         return response.text
     except RequestException as e:
@@ -77,7 +77,6 @@ def scan_url(url, level, results_queue):
             "status": "Error",
             "error_message": str(e)
         })
-        raise  # Re-raise the exception so it can be handled in the main function
 
 # Main function
 def main():
@@ -105,15 +104,12 @@ def main():
         # Submit tasks for each URL to the executor
         futures = [executor.submit(scan_url, url, args.level, results_queue) for url in args.urls]
 
-        # Ensure all threads complete and handle exceptions
+        # Ensure all threads complete
         for future in futures:
             try:
-                future.result()  # Ensure any exceptions are raised and handled here
+                future.result()  # Ensure any exceptions are raised
             except Exception as e:
-                logger.error(f"Error in thread for URL: {e}")
-
-        # Wait until all tasks in the queue have been processed
-        results_queue.join()
+                logger.error(f"Error in thread: {e}")
 
         # Shutdown the executor
         executor.shutdown()  
