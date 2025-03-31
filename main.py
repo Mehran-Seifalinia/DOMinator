@@ -97,9 +97,10 @@ def scan_url(url, level, results_queue, timeout, proxy, verbose, blacklist, no_e
 def main():
     args = parse_args()
     
-    if args.url and args.list_url:
-        print("Error: Both --url and --list-url are provided. Please specify only one.")
+    if not args.url and not args.list_url:
+        print("Error: No URL(s) or list URL provided. Please specify one.")
         exit(1)
+
 
     if args.url:
         args.url = [args.url]  # Ensure it's treated as a list for consistency
