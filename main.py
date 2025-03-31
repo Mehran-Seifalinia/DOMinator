@@ -100,7 +100,9 @@ def main():
         exit("Error: Either --url or --input-file must be specified.")
     
     if args.url and args.input_file:
-        exit("Error: Both --url and --input-file are provided. Please specify only one.")
+        # Print help message and exit with specific error
+        print("Error: Both --url and --input-file are provided. Please specify only one.")
+        exit()
     
     if args.input_file:
         try:
