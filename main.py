@@ -1,6 +1,6 @@
 from asyncio import Queue, gather, run
 from aiohttp import ClientSession, ClientTimeout, ClientError
-from json import dump
+from json import dump, dumps
 from time import time
 from extractors.html_parser import ScriptExtractor
 from extractors.event_handler_extractor import extract
@@ -67,14 +67,14 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
         start_time = time()
         logger.info(f"Extracting data from {url}...")
 
-        event_handlers = await extract(session, url, timeout)  # Removed the check for None
+        event_handlers = await extract(session, url, timeout, proxy=proxy, user_agent=user_agent, cookie=cookie)
 
         logger.info(f"Running static analysis for {url}...")
         static_results = static_analyze(url, level)
 
         logger.info(f"Running dynamic analysis for {url}...")
         try:
-            dynamic_results = dynamic_analyze(url)
+            dynamic_results = dynamic_analyze(url, headless=headless, cookie=cookie)
         except Exception as e:
             logger.warning(f"Dynamic analysis failed for {url}: {e}")
             dynamic_results = {"error": str(e)}
@@ -104,7 +104,15 @@ def write_results_to_csv(results, output_file):
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = DictWriter(f, fieldnames=['url', 'status', 'elapsed_time', 'static_results', 'dynamic_results', 'priority_results'])
         writer.writeheader()
-        writer.writerows(results)
+        for result in results:
+            writer.writerow({
+                "url": result["url"],
+                "status": result["status"],
+                "elapsed_time": result["elapsed_time"],
+                "static_results": dumps(result["static_results"]),
+                "dynamic_results": dumps(result["dynamic_results"]),
+                "priority_results": dumps(result["priority_results"])
+            })
 
 # Main function
 async def main():
