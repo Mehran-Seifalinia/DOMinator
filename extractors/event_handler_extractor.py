@@ -1,4 +1,4 @@
-import asyncio
+from asyncio import run, gather
 from aiohttp import ClientSession
 from extractors.html_parser import ScriptExtractor
 from utils.logger import get_logger
@@ -58,11 +58,11 @@ async def extract(session: ClientSession, url: str, timeout: int) -> dict:
 async def run_extraction(urls: list, timeout: int):
     async with ClientSession() as session:
         tasks = [extract(session, url, timeout) for url in urls]
-        results = await asyncio.gather(*tasks)
+        results = await gather(*tasks)
         return results
 
 def main(urls: list, timeout: int = 10):
-    return asyncio.run(run_extraction(urls, timeout))
+    return run(run_extraction(urls, timeout))
 
 if __name__ == "__main__":
     urls = ["http://example.com", "http://example2.com"]
