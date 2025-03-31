@@ -22,7 +22,8 @@ class EventHandlerExtractor:
             event_handlers = self.extractor.extract_event_handlers()
 
             if not isinstance(event_handlers, dict):
-                raise TypeError(f"Expected dict, got {type(event_handlers)}")
+                logger.error("Invalid event handlers format received.")
+                return {"error": "Invalid format"}
 
             if event_handlers:
                 logger.info(f"Event handlers extracted: {event_handlers}")
@@ -32,28 +33,32 @@ class EventHandlerExtractor:
             return event_handlers
         except Exception as e:
             logger.error(f"Error extracting event handlers: {e}")
-            return {}
+            return {"error": "Extraction failed"}
 
 async def fetch_html(session: ClientSession, url: str, timeout: int) -> str:
     try:
         async with session.get(url, timeout=timeout) as response:
             response.raise_for_status()
+            html = await response.text()
+            if not html.strip():
+                logger.error(f"Empty HTML response for {url}")
+                return {"error": "Empty HTML response"}
             logger.info(f"Successfully fetched HTML for {url}")
-            return await response.text()
+            return html
     except Exception as e:
         logger.error(f"Failed to fetch HTML for {url}: {e}")
-        return ""
+        return {"error": "Failed to fetch HTML"}
 
 async def extract(session: ClientSession, url: str, timeout: int) -> dict:
     try:
         html = await fetch_html(session, url, timeout)
-        if not html:
-            return {}
+        if isinstance(html, dict):
+            return html
         extractor = EventHandlerExtractor(html)
         return extractor.extract_event_handlers()
     except Exception as e:
         logger.error(f"Error during extraction process: {e}")
-        return {}
+        return {"error": "Extraction failed"}
 
 async def run_extraction(urls: list, timeout: int):
     async with ClientSession() as session:
