@@ -1,9 +1,8 @@
-from utils.logger import get_logger
+import requests
 from extractors.html_parser import ScriptExtractor
+from utils.logger import get_logger
 
-
-# Set up the logger
-logger = get_logger(__name__)  # Use the configured logger from logger.py
+logger = get_logger(__name__)
 
 class EventHandlerExtractor:
     def __init__(self, html: str):
@@ -16,12 +15,12 @@ class EventHandlerExtractor:
         try:
             # Initialize the ScriptExtractor with the provided HTML content
             self.extractor = ScriptExtractor(html)
-            logger.info("Successfully initialized ScriptExtractor.")  # Log successful initialization
+            logger.info("Successfully initialized ScriptExtractor.")
         except ValueError as e:
-            logger.error(f"Invalid HTML content: {e}")  # Log error if HTML content is invalid
+            logger.error(f"Invalid HTML content: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error during initialization: {e}")  # Log any other initialization errors
+            logger.error(f"Unexpected error during initialization: {e}")
             raise
 
     def extract_event_handlers(self) -> dict:
@@ -33,27 +32,49 @@ class EventHandlerExtractor:
         :raises Exception: If an error occurs during extraction.
         """
         try:
-            # Extract event handlers using the ScriptExtractor
             event_handlers = self.extractor.extract_event_handlers()
             
-            # Validate that the extracted event handlers are in dictionary format
             if not isinstance(event_handlers, dict):
-                raise TypeError(f"Expected dict, got {type(event_handlers)}")  # Log error if the format is incorrect
+                raise TypeError(f"Expected dict, got {type(event_handlers)}")
             
-            # Log event handlers if found, otherwise log no event handlers found
             if event_handlers:
                 logger.info(f"Event handlers extracted: {event_handlers}")
             else:
                 logger.info("No event handlers found.")
             
-            return event_handlers  # Return the extracted event handlers
+            return event_handlers
         except Exception as e:
-            logger.error(f"Error extracting event handlers: {e}")  # Log error during extraction
-            return {}  # Return an empty dictionary if extraction fails
+            logger.error(f"Error extracting event handlers: {e}")
+            return {}
 
-# Example usage (this will only run if the file is executed as a script, not if it's imported as a module)
+def fetch_html(url: str) -> str:
+    """
+    Fetch the HTML content from the given URL.
+
+    :param url: The target URL.
+    :returns: The HTML content of the page.
+    :raises Exception: If the page cannot be fetched.
+    """
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response.text
+    else:
+        raise Exception(f"Failed to fetch HTML for {url}")
+
+def extract(url: str) -> dict:
+    """
+    Extract event handlers from the HTML content of the given URL.
+    
+    :param url: The target URL.
+    :returns: A dictionary of event handlers.
+    """
+    html = fetch_html(url)  # Fetch the HTML content from the URL
+    extractor = EventHandlerExtractor(html)
+    return extractor.extract_event_handlers()
+
+# Example usage (this will only run if the file is executed as a script)
 if __name__ == "__main__":
     html_content = "<html><body><div onclick='alert(\"Hello\");'></div></body></html>"
-    event_extractor = EventHandlerExtractor(html_content)  # Initialize the extractor with HTML content
-    event_handlers = event_extractor.extract_event_handlers()  # Extract event handlers
-    print(event_handlers)  # Print the extracted event handlers
+    event_extractor = EventHandlerExtractor(html_content)
+    event_handlers = event_extractor.extract_event_handlers()
+    print(event_handlers)
