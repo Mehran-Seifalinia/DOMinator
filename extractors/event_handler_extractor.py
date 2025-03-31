@@ -1,4 +1,5 @@
-from requests import get
+from aiohttp import ClientSession
+from asyncio import run, gather
 from extractors.html_parser import ScriptExtractor
 from utils.logger import get_logger
 
@@ -33,26 +34,32 @@ class EventHandlerExtractor:
             logger.error(f"Error extracting event handlers: {e}")
             return {}
 
-def fetch_html(url: str) -> str:
+async def fetch_html(session: ClientSession, url: str) -> str:
     try:
-        response = get(url)
-        response.raise_for_status()
-        logger.info(f"Successfully fetched HTML for {url}")
-        return response.text
+        async with session.get(url) as response:
+            response.raise_for_status()
+            logger.info(f"Successfully fetched HTML for {url}")
+            return await response.text()
     except Exception as e:
-        logger.error(f"Failed to fetch HTML for {url}, Status Code: {response.status_code if hasattr(response, 'status_code') else 'Unknown'} - {e}")
+        logger.error(f"Failed to fetch HTML for {url}: {e}")
         raise
 
-def extract(url: str) -> dict:
+async def extract(session: ClientSession, url: str) -> dict:
     try:
-        html = fetch_html(url)
+        html = await fetch_html(session, url)
         extractor = EventHandlerExtractor(html)
         return extractor.extract_event_handlers()
     except Exception as e:
         logger.error(f"Error during extraction process: {e}")
         return {}
 
+async def main(urls: list):
+    async with ClientSession() as session:
+        tasks = [extract(session, url) for url in urls]
+        results = await gather(*tasks)
+        return results
+
 if __name__ == "__main__":
-    url = "http://example.com"
-    event_handlers = extract(url)
+    urls = ["http://example.com", "http://example2.com"]
+    event_handlers = run(main(urls))
     print(event_handlers)
