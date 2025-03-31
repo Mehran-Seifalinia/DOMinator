@@ -10,6 +10,7 @@ from scanners.dynamic_analyzer import analyze as dynamic_analyze
 from scanners.priority_manager import rank
 from utils.logger import get_logger
 from argparse import ArgumentParser
+from sys import exit
 
 # Set up logger
 logger = get_logger(__name__)
