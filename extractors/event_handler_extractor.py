@@ -8,7 +8,6 @@ logger = get_logger(__name__)
 class EventHandlerExtractor:
     def __init__(self, html: str, proxy: str = None, user_agent: str = None):
         try:
-            # Initialize ScriptExtractor with optional proxy and user_agent
             self.extractor = ScriptExtractor(html, proxy=proxy, user_agent=user_agent)
             logger.info("Successfully initialized ScriptExtractor.")
         except ValueError as e:
@@ -21,8 +20,8 @@ class EventHandlerExtractor:
     def extract_event_handlers(self) -> dict:
         try:
             event_handlers = self.extractor.extract_event_handlers()
-
-            if event_handlers:  # No need to check type as ScriptExtractor always returns a dict
+            
+            if event_handlers is not None and len(event_handlers) > 0:
                 logger.info(f"Event handlers extracted: {event_handlers}")
             else:
                 logger.info("No event handlers found.")
@@ -50,8 +49,9 @@ async def fetch_html(session: ClientSession, url: str, timeout: int, proxy: str 
 async def extract(session: ClientSession, url: str, timeout: int, proxy: str = None, user_agent: str = None) -> dict:
     try:
         html = await fetch_html(session, url, timeout, proxy, user_agent)
-        if isinstance(html, dict):  # Handle if an error occurs
+        if isinstance(html, dict):  # Handle error case before creating extractor
             return html
+        
         extractor = EventHandlerExtractor(html, proxy, user_agent)
         return extractor.extract_event_handlers()
     except Exception as e:
@@ -69,7 +69,8 @@ def main(urls: list, timeout: int = 10, proxy: str = None, user_agent: str = Non
 
 if __name__ == "__main__":
     urls = ["http://example.com", "http://example2.com"]
-    proxy = None  # Or provide a proxy string if needed
+    proxy = None  
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+    
     event_handlers = main(urls, timeout=10, proxy=proxy, user_agent=user_agent)
     print(event_handlers)
