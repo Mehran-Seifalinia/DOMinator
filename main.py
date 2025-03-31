@@ -67,9 +67,7 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
         start_time = time()
         logger.info(f"Extracting data from {url}...")
 
-        event_handlers = await extract(session, url, timeout)
-        if event_handlers is None:
-            event_handlers = {}
+        event_handlers = await extract(session, url, timeout)  # Removed the check for None
 
         logger.info(f"Running static analysis for {url}...")
         static_results = static_analyze(url, level)
