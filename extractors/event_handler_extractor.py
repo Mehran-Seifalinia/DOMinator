@@ -19,34 +19,40 @@ class EventHandlerExtractor:
     def extract_event_handlers(self) -> dict:
         try:
             event_handlers = self.extractor.extract_event_handlers()
-            
+
             if not isinstance(event_handlers, dict):
                 raise TypeError(f"Expected dict, got {type(event_handlers)}")
-            
+
             if event_handlers:
                 logger.info(f"Event handlers extracted: {event_handlers}")
             else:
                 logger.info("No event handlers found.")
-            
+
             return event_handlers
         except Exception as e:
             logger.error(f"Error extracting event handlers: {e}")
             return {}
 
 def fetch_html(url: str) -> str:
-    response = get(url)
-    if response.status_code == 200:
+    try:
+        response = get(url)
+        response.raise_for_status()
+        logger.info(f"Successfully fetched HTML for {url}")
         return response.text
-    else:
-        raise Exception(f"Failed to fetch HTML for {url}")
+    except Exception as e:
+        logger.error(f"Failed to fetch HTML for {url}, Status Code: {response.status_code if hasattr(response, 'status_code') else 'Unknown'} - {e}")
+        raise
 
 def extract(url: str) -> dict:
-    html = fetch_html(url)
-    extractor = EventHandlerExtractor(html)
-    return extractor.extract_event_handlers()
+    try:
+        html = fetch_html(url)
+        extractor = EventHandlerExtractor(html)
+        return extractor.extract_event_handlers()
+    except Exception as e:
+        logger.error(f"Error during extraction process: {e}")
+        return {}
 
 if __name__ == "__main__":
-    html_content = "<html><body><div onclick='alert(\"Hello\");'></div></body></html>"
-    event_extractor = EventHandlerExtractor(html_content)
-    event_handlers = event_extractor.extract_event_handlers()
+    url = "http://example.com"
+    event_handlers = extract(url)
     print(event_handlers)
