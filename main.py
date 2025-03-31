@@ -8,7 +8,7 @@ from scanners.static_analyzer import analyze as static_analyze
 from scanners.dynamic_analyzer import analyze as dynamic_analyze
 from scanners.priority_manager import rank
 from utils.logger import get_logger
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests import get, RequestException
 from time import time
 
@@ -80,21 +80,30 @@ def main():
         exit(1)
 
     results = []
-    with ThreadPoolExecutor(max_workers=args.threads) as executor:
-        # Validate URLs before processing
-        for url in args.urls:
-            try:
-                validate_url(url)
-            except ValueError as e:
-                logger.error(f"Skipping invalid URL: {url} - {e}")
-                continue
 
-        futures = [executor.submit(scan_url, url, args.level, results) for url in args.urls]
-        for future in futures:
+    # Validate URLs before processing
+    valid_urls = []
+    for url in args.urls:
+        try:
+            validate_url(url)
+            valid_urls.append(url)
+        except ValueError as e:
+            logger.error(f"Skipping invalid URL: {url} - {e}")
+
+    if not valid_urls:
+        logger.error("No valid URLs to process.")
+        exit(1)
+
+    with ThreadPoolExecutor(max_workers=args.threads) as executor:
+        futures = {executor.submit(scan_url, url, args.level, results): url for url in valid_urls}
+
+        for future in as_completed(futures):
+            url = futures[future]
             try:
                 future.result()  # Ensure any exceptions are raised
             except Exception as e:
-                logger.error(f"Error in thread: {e}")
+                logger.error(f"Error in thread for {url}: {e}")
+                results.append({"url": url, "status": "Error", "error_message": str(e)})
 
         executor.shutdown()  # Ensure all threads finish properly
 
