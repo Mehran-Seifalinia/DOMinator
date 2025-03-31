@@ -1,6 +1,5 @@
+from asyncio import Queue, gather, run
 from aiohttp import ClientSession, ClientTimeout, ClientError
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Queue
 from json import dump
 from time import time
 from extractors.html_parser import ScriptExtractor
@@ -11,7 +10,6 @@ from scanners.priority_manager import rank
 from utils.logger import get_logger
 from argparse import ArgumentParser
 from sys import exit
-from asyncio import gather, run
 from csv import DictWriter
 
 # Set up logger
@@ -44,12 +42,6 @@ def validate_url(url):
     if not url.startswith(('http://', 'https://')):
         raise ValueError(f"Invalid URL format: {url}")
     return url
-
-# Validate threads
-def validate_threads(threads):
-    if threads < 1:
-        raise ValueError(f"Invalid thread count: {threads}. Must be a positive integer.")
-    return threads
 
 # Validate timeout
 def validate_timeout(timeout):
@@ -106,7 +98,7 @@ def write_results_to_csv(results, output_file):
         writer.writerows(results)
 
 # Main function
-def main():
+async def main():
     args = parse_args()
     
     if not args.url and not args.list_url:
@@ -127,7 +119,6 @@ def main():
     if not args.url:
         exit("Error: No URL(s) provided.")
     
-    args.threads = validate_threads(args.threads)
     args.timeout = validate_timeout(args.timeout)
     
     results_queue = Queue()
@@ -144,7 +135,7 @@ def main():
     # Collect results
     results = []
     while not results_queue.empty():
-        results.append(results_queue.get())
+        results.append(await results_queue.get())
     
     if args.report_format == 'csv' and args.output:
         write_results_to_csv(results, args.output)
