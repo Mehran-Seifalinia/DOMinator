@@ -2,11 +2,12 @@ import argparse
 import threading
 import sys
 import json
-from concurrent.futures import ThreadPoolExecutor
-from extractors import html_parser, external_fetcher, event_handler_extractor
+from extractors.html_parser import ScriptExtractor
+from extractors.event_handler_extractor import extract
 from scanners import static_analyzer, dynamic_analyzer, priority_manager
-from utils.logger import Logger
+from utils.logger import get_logger
 
+logger = get_logger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="DOM XSS Scanner Tool")
@@ -18,31 +19,27 @@ def parse_args():
     return parser.parse_args()
 
 def scan_url(url, level):
-    logger = Logger()
-    
     try:
         # Extraction phase
-        logger.log(f"Extracting data from {url}...")
-        html_parser.extract(url)
-        external_fetcher.fetch(url)
-        event_handler_extractor.extract(url)
+        logger.info(f"Extracting data from {url}...")
+        event_handlers = extract(url)  # Use extract from event_handler_extractor.py
         
         # Static analysis phase
-        logger.log(f"Running static analysis for {url}...")
+        logger.info(f"Running static analysis for {url}...")
         static_analyzer.analyze(url, level)
         
         # Dynamic analysis phase (Playwright)
-        logger.log(f"Running dynamic analysis for {url}...")
+        logger.info(f"Running dynamic analysis for {url}...")
         dynamic_analyzer.analyze(url)
         
         # Prioritization and reporting
-        logger.log(f"Prioritizing vulnerabilities for {url}...")
+        logger.info(f"Prioritizing vulnerabilities for {url}...")
         priority_manager.rank(url)
         
-        logger.log(f"Analysis completed for {url}")
+        logger.info(f"Analysis completed for {url}")
     except Exception as e:
-        logger.log(f"Error while scanning {url}: {e}")
-    
+        logger.error(f"Error while scanning {url}: {e}")
+
 def main():
     args = parse_args()
 
@@ -51,11 +48,24 @@ def main():
         print("No URLs provided.")
         sys.exit(1)
 
-    # Multi-threaded scanning setup using ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=args.threads) as executor:
-        futures = [executor.submit(scan_url, url, args.level) for url in args.urls]
-        for future in futures:
-            future.result()
+    # Multi-threaded scanning setup
+    threads = []
+    for url in args.urls:
+        if len(threads) >= args.threads:
+            threads[0].join()
+            threads = threads[1:]
+
+        thread = threading.Thread(target=scan_url, args=(url, args.level))
+        thread.start()
+        threads.append(thread)
+
+    for thread in threads:
+        thread.join()
+
+    # If output file is specified, save results
+    if args.output:
+        with open(args.output, 'w') as f:
+            json.dump({"message": "Results saved"}, f)
 
 if __name__ == "__main__":
     main()
