@@ -64,9 +64,10 @@ def get_url(url, force, timeout):
     except RequestException as e:
         if force:
             logger.warning(f"Unable to reach {url}, but continuing due to --force.")
-            return None
+            return {"error": "timeout", "url": url, "message": str(e)}
         else:
             raise e
+
 
 # Scan URL
 def scan_url(url, level, results_queue, timeout, proxy, verbose, blacklist, no_external, headless, user_agent, cookie, max_depth, auto_update, report_format):
@@ -79,7 +80,11 @@ def scan_url(url, level, results_queue, timeout, proxy, verbose, blacklist, no_e
         static_analyze(url, level)
         
         logger.info(f"Running dynamic analysis for {url}...")
-        dynamic_analyze(url)
+        try:
+            dynamic_analyze(url)
+        except Exception as e:
+            logger.warning(f"Dynamic analysis failed for {url}: {e}")
+
         
         logger.info(f"Prioritizing vulnerabilities for {url}...")
         rank(url)
