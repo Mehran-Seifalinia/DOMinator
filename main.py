@@ -24,7 +24,7 @@ def parse_args():
     parser.add_argument('-o', '--output', type=str, help='Output file for saving results')
     parser.add_argument('-l', '--level', type=int, choices=[1, 2, 3, 4], default=2, help='Set analysis level or filter results based on vulnerability risk level')
     parser.add_argument('-to', '--timeout', type=int, default=10, help='Set timeout (in seconds) for HTTP requests')
-    parser.add_argument('-i', '--input-file', type=str, help='Path to a file containing a list of URLs to test')
+    parser.add_argument('-L', '--list-url', type=str, help='Path to a file containing a list of URLs to test')
     parser.add_argument('-r', '--report-format', type=str, choices=['json', 'html'], default='json', help='Choose the format of the report')
     parser.add_argument('-p', '--proxy', type=str, help='Set a proxy for HTTP requests')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
@@ -100,10 +100,6 @@ def main():
     if not args.url and not args.list_url:
         print("Error: No URL(s) or list URL provided. Please specify one.")
         exit(1)
-
-
-    if args.url:
-        args.url = [args.url]  # Ensure it's treated as a list for consistency
 
     if args.list_url:
         try:
