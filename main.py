@@ -59,12 +59,17 @@ async def get_url_async(session, url, force, timeout):
 # Scan URL
 async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, blacklist, no_external, headless, user_agent, cookie, max_depth, auto_update, report_format, session):
     try:
+        # Check blacklist
+        if blacklist and any(bl_url in url for bl_url in blacklist.split(',')):
+            logger.info(f"Skipping blacklisted URL: {url}")
+            return
+
         start_time = time()
         logger.info(f"Extracting data from {url}...")
 
         event_handlers = await extract(session, url, timeout)
-        if not event_handlers:
-            logger.warning(f"No event handlers found for {url}.")
+        if event_handlers is None:
+            event_handlers = {}
 
         logger.info(f"Running static analysis for {url}...")
         static_results = static_analyze(url, level)
@@ -77,7 +82,7 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
             dynamic_results = {"error": str(e)}
 
         logger.info(f"Prioritizing vulnerabilities for {url}...")
-        priority_results = rank(url)
+        priority_results = rank(static_results, dynamic_results)
 
         elapsed_time = time() - start_time
         logger.info(f"Analysis completed for {url} in {elapsed_time:.2f} seconds")
@@ -90,11 +95,11 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
             "dynamic_results": dynamic_results,
             "priority_results": priority_results
         }
-        results_queue.put(result)
+        await results_queue.put(result)
 
     except Exception as e:
         logger.error(f"Error while scanning {url}: {e}")
-        results_queue.put({"url": url, "status": "Error", "error_message": str(e)})
+        await results_queue.put({"url": url, "status": "Error", "error_message": str(e)})
 
 # Write results to CSV
 def write_results_to_csv(results, output_file):
