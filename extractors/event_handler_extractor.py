@@ -1,4 +1,4 @@
-from logger import get_logger  # Use the unified logger from logger.py
+from utils.logger import get_logger
 from html_parser import ScriptExtractor  # Assuming this is the custom library for script extraction
 
 # Set up the logger
