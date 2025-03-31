@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 # Parse command-line arguments
 def parse_args():
     parser = ArgumentParser(description="DOM XSS Scanner Tool")
-    parser.add_argument('-u', '--url', help='Target URL(s)', nargs='+', required=True)
+    parser.add_argument('-u', '--url', help='Target URL(s)', nargs='+', required=False)
     parser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel processing')
     parser.add_argument('-f', '--force', action='store_true', help='Force continue even if site is not reachable')
     parser.add_argument('-o', '--output', type=str, help='Output file for saving results')
@@ -44,6 +44,18 @@ def validate_url(url):
         raise ValueError(f"Invalid URL format: {url}")
     return url
 
+# Validate threads (must be positive)
+def validate_threads(threads):
+    if threads < 1:
+        raise ValueError(f"Invalid thread count: {threads}. Must be a positive integer.")
+    return threads
+
+# Validate timeout (must be positive)
+def validate_timeout(timeout):
+    if timeout <= 0:
+        raise ValueError(f"Invalid timeout value: {timeout}. Timeout must be a positive integer.")
+    return timeout
+
 # Fetch the URL content with timeout for safety
 def get_url(url, force, timeout):
     try:
@@ -58,7 +70,7 @@ def get_url(url, force, timeout):
             raise e
 
 # Scan URL: Static and dynamic analysis, prioritization, and result logging
-def scan_url(url, level, results_queue, timeout, proxy, verbose, blacklist, no_external, headless, user_agent, cookie, max_depth, auto_update):
+def scan_url(url, level, results_queue, timeout, proxy, verbose, blacklist, no_external, headless, user_agent, cookie, max_depth, auto_update, report_format):
     try:
         start_time = time()
         logger.info(f"Extracting data from {url}...")
@@ -76,11 +88,19 @@ def scan_url(url, level, results_queue, timeout, proxy, verbose, blacklist, no_e
         elapsed_time = time() - start_time
         logger.info(f"Analysis completed for {url} in {elapsed_time:.2f} seconds")
 
-        results_queue.put({
+        # Collect result in the requested report format
+        result = {
             "url": url,
             "status": "Completed",
             "elapsed_time": elapsed_time
-        })
+        }
+
+        if report_format == 'json':
+            results_queue.put(result)
+        elif report_format == 'html':
+            # Convert result to HTML format if needed
+            html_result = f"<h1>Results for {url}</h1><p>Status: Completed</p><p>Elapsed Time: {elapsed_time:.2f}s</p>"
+            results_queue.put(html_result)
 
     except Exception as e:
         logger.error(f"Error while scanning {url}: {e}")
@@ -95,10 +115,27 @@ def main():
     # Parse command-line arguments
     args = parse_args()
 
-    # Check if URLs are provided
+    # Check for conflicting arguments: --url and --input-file
+    if args.url and args.input_file:
+        print("Error: Both --url and --input-file are provided. Please specify only one.")
+        exit(1)
+
+    # If input file is provided, read URLs from the file
+    if args.input_file:
+        try:
+            with open(args.input_file, 'r') as f:
+                args.url = [line.strip() for line in f.readlines()]
+        except FileNotFoundError:
+            print(f"Error: File {args.input_file} not found.")
+            exit(1)
+
+    # Validate URLs and arguments
     if not args.url:
         print("No URLs provided.")
         exit(1)
+
+    args.threads = validate_threads(args.threads)
+    args.timeout = validate_timeout(args.timeout)
 
     # Create a queue for thread-safe result collection
     results_queue = Queue()
@@ -114,7 +151,7 @@ def main():
                 continue
 
         # Submit tasks for each URL to the executor
-        futures = [executor.submit(scan_url, url, args.level, results_queue, args.timeout, args.proxy, args.verbose, args.blacklist, args.no_external, args.hd, args.user_agent, args.cookie, args.max_depth, args.auto_update) for url in args.url]
+        futures = [executor.submit(scan_url, url, args.level, results_queue, args.timeout, args.proxy, args.verbose, args.blacklist, args.no_external, args.hd, args.user_agent, args.cookie, args.max_depth, args.auto_update, args.report_format) for url in args.url]
 
         # Ensure all threads complete
         for future in futures:
