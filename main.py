@@ -40,8 +40,9 @@ def get_url(url, force):
         else:
             raise e
 
-def scan_url(url, level):
+def scan_url(url, level, results):
     try:
+        start_time = time()
         logger.info(f"Extracting data from {url}...")
         event_handlers = extract(url)
 
@@ -54,9 +55,22 @@ def scan_url(url, level):
         logger.info(f"Prioritizing vulnerabilities for {url}...")
         rank(url)
 
-        logger.info(f"Analysis completed for {url}")
+        elapsed_time = time() - start_time
+        logger.info(f"Analysis completed for {url} in {elapsed_time:.2f} seconds")
+
+        results.append({
+            "url": url,
+            "status": "Completed",
+            "elapsed_time": elapsed_time
+        })
+
     except Exception as e:
         logger.error(f"Error while scanning {url}: {e}")
+        results.append({
+            "url": url,
+            "status": "Error",
+            "error_message": str(e)
+        })
 
 def main():
     args = parse_args()
@@ -67,13 +81,26 @@ def main():
 
     results = []
     with ThreadPoolExecutor(max_workers=args.threads) as executor:
+        # Validate URLs before processing
         for url in args.urls:
-            validate_url(url)
-            executor.submit(scan_url, url, args.level)
+            try:
+                validate_url(url)
+            except ValueError as e:
+                logger.error(f"Skipping invalid URL: {url} - {e}")
+                continue
+
+        futures = [executor.submit(scan_url, url, args.level, results) for url in args.urls]
+        for future in futures:
+            try:
+                future.result()  # Ensure any exceptions are raised
+            except Exception as e:
+                logger.error(f"Error in thread: {e}")
+
+        executor.shutdown()  # Ensure all threads finish properly
 
     if args.output:
         with open(args.output, 'w') as f:
-            dump({"message": "Results saved"}, f)
+            dump(results, f, indent=4)
 
 if __name__ == "__main__":
     main()
