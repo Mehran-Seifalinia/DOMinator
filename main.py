@@ -22,10 +22,10 @@ def parse_args():
     parser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel processing')
     parser.add_argument('-f', '--force', action='store_true', help='Force continue even if site is not reachable')
     parser.add_argument('-o', '--output', type=str, help='Output file for saving results')
-    parser.add_argument('-l', '--level', type=int, choices=[1, 2, 3, 4], default=2, help='Set analysis level or filter results based on vulnerability risk level')
+    parser.add_argument('-l', '--level', type=int, choices=[1, 2, 3, 4], default=2, help='Set analysis level')
     parser.add_argument('-to', '--timeout', type=int, default=10, help='Set timeout (in seconds) for HTTP requests')
     parser.add_argument('-L', '--list-url', type=str, help='Path to a file containing a list of URLs to test')
-    parser.add_argument('-r', '--report-format', type=str, choices=['json', 'html', 'csv'], default='json', help='Choose the format of the report')
+    parser.add_argument('-r', '--report-format', type=str, choices=['json', 'html', 'csv'], default='json', help='Choose report format')
     parser.add_argument('-p', '--proxy', type=str, help='Set a proxy for HTTP requests')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
     parser.add_argument('-b', '--blacklist', type=str, help='Comma-separated list of URLs to exclude from scanning')
@@ -36,12 +36,6 @@ def parse_args():
     parser.add_argument('--max-depth', type=int, default=5, help='Set maximum crawling depth')
     parser.add_argument('--auto-update', action='store_true', help='Automatically check and download the latest payloads')
     return parser.parse_args()
-
-# Validate URL format
-def validate_url(url):
-    if not url.startswith(('http://', 'https://')):
-        raise ValueError(f"Invalid URL format: {url}")
-    return url
 
 # Validate timeout
 def validate_timeout(timeout):
@@ -67,25 +61,37 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
     try:
         start_time = time()
         logger.info(f"Extracting data from {url}...")
-        event_handlers = await extract(session, url)
-        
+
+        event_handlers = await extract(session, url, timeout)
+        if not event_handlers:
+            logger.warning(f"No event handlers found for {url}.")
+
         logger.info(f"Running static analysis for {url}...")
-        static_analyze(url, level)
-        
+        static_results = static_analyze(url, level)
+
         logger.info(f"Running dynamic analysis for {url}...")
         try:
-            dynamic_analyze(url)
+            dynamic_results = dynamic_analyze(url)
         except Exception as e:
             logger.warning(f"Dynamic analysis failed for {url}: {e}")
-        
+            dynamic_results = {"error": str(e)}
+
         logger.info(f"Prioritizing vulnerabilities for {url}...")
-        rank(url)
-        
+        priority_results = rank(url)
+
         elapsed_time = time() - start_time
         logger.info(f"Analysis completed for {url} in {elapsed_time:.2f} seconds")
-        
-        result = {"url": url, "status": "Completed", "elapsed_time": elapsed_time}
-        results_queue.put(result if report_format == 'json' else f"<h1>Results for {url}</h1><p>Status: Completed</p><p>Elapsed Time: {elapsed_time:.2f}s</p>")
+
+        result = {
+            "url": url,
+            "status": "Completed",
+            "elapsed_time": elapsed_time,
+            "static_results": static_results,
+            "dynamic_results": dynamic_results,
+            "priority_results": priority_results
+        }
+        results_queue.put(result)
+
     except Exception as e:
         logger.error(f"Error while scanning {url}: {e}")
         results_queue.put({"url": url, "status": "Error", "error_message": str(e)})
@@ -93,14 +99,14 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
 # Write results to CSV
 def write_results_to_csv(results, output_file):
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
-        writer = DictWriter(f, fieldnames=['url', 'status', 'elapsed_time', 'error_message'])
+        writer = DictWriter(f, fieldnames=['url', 'status', 'elapsed_time', 'static_results', 'dynamic_results', 'priority_results'])
         writer.writeheader()
         writer.writerows(results)
 
 # Main function
 async def main():
     args = parse_args()
-    
+
     if not args.url and not args.list_url:
         print("Error: No URL(s) or list URL provided. Please specify one.")
         exit(1)
@@ -118,19 +124,19 @@ async def main():
 
     if not args.url:
         exit("Error: No URL(s) provided.")
-    
+
     args.timeout = validate_timeout(args.timeout)
-    
+
     results_queue = Queue()
-    
+
     async with ClientSession() as session:
         tasks = [scan_url_async(url, args.level, results_queue, args.timeout, args.proxy, args.verbose, args.blacklist, args.no_external, args.headless, args.user_agent, args.cookie, args.max_depth, args.auto_update, args.report_format, session) for url in args.url]
         await gather(*tasks)
-    
+
     results = []
     while not results_queue.empty():
         results.append(await results_queue.get())
-    
+
     if args.report_format == 'csv' and args.output:
         write_results_to_csv(results, args.output)
     elif args.report_format == 'json' and args.output:
