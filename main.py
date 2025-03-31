@@ -111,6 +111,9 @@ def main():
             except Exception as e:
                 logger.error(f"Error in thread: {e}")
 
+        # Wait until all tasks in the queue have been processed
+        results_queue.join()
+
         # Shutdown the executor
         executor.shutdown()  
 
