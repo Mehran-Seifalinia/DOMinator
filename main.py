@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel processing')
     parser.add_argument('-f', '--force', action='store_true', help='Force continue even if site is not reachable')
     parser.add_argument('-o', '--output', type=str, help='Output file for saving results')
-    parser.add_argument('-l', '--level', type=int, choices=[1, 2, 3, 4], default=2, help='Set analysis level or filter results based on vulnerability risk level (1: Critical, 2: High, 3: Medium, 4: Low)')
+    parser.add_argument('-l', '--level', type=int, choices=[1, 2, 3, 4], default=2, help='Set analysis level or filter results based on vulnerability risk level (1: Low, 2: Medium, 3: High, 4: Critical)')
     parser.add_argument('-to', '--timeout', type=int, default=10, help='Set timeout (in seconds) for HTTP requests')
     parser.add_argument('-i', '--input-file', type=str, help='Path to a file containing a list of URLs to test')
     parser.add_argument('-r', '--report-format', type=str, choices=['json', 'html'], default='json', help='Choose the format of the report (json or html)')
@@ -124,7 +124,7 @@ def main():
                 logger.error(f"Error in thread: {e}")
 
         # Shutdown the executor
-        executor.shutdown()  
+        executor.shutdown()
 
     # Collect results from the queue
     results = []
