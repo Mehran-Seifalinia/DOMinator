@@ -101,6 +101,10 @@ def main():
         print("Error: No URL(s) or list URL provided. Please specify one.")
         exit(1)
 
+    if args.url and args.list_url:
+        print("Error: Cannot use both --url and --list-url at the same time.")
+        exit(1)
+
     if args.list_url:
         try:
             with open(args.list_url, 'r') as f:
