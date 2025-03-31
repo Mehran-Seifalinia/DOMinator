@@ -23,7 +23,7 @@ def parse_args():
     parser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel processing')
     parser.add_argument('-f', '--force', action='store_true', help='Force continue even if site is not reachable')
     parser.add_argument('-o', '--output', type=str, help='Output file for saving results')
-    parser.add_argument('-l', '--level', type=str, choices=['critical', 'high', 'medium', 'low'], default='high', help='Set analysis level or filter results based on vulnerability risk level')
+    parser.add_argument('-l', '--level', type=int, choices=[1, 2, 3, 4], default=2, help='Set analysis level or filter results based on vulnerability risk level (1: Critical, 2: High, 3: Medium, 4: Low)')
     parser.add_argument('-to', '--timeout', type=int, default=10, help='Set timeout (in seconds) for HTTP requests')
     parser.add_argument('-i', '--input-file', type=str, help='Path to a file containing a list of URLs to test')
     parser.add_argument('-r', '--report-format', type=str, choices=['json', 'html'], default='json', help='Choose the format of the report (json or html)')
@@ -31,7 +31,7 @@ def parse_args():
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
     parser.add_argument('-b', '--blacklist', type=str, help='Comma-separated list of URLs to exclude from scanning', dest='blacklist')
     parser.add_argument('--no-external', action='store_true', help='Do not fetch and analyze external JS files (for faster scan)')
-    parser.add_argument('--headless', action='store_true', help='Enable headless browser mode (e.g., Chromium) for dynamic interaction testing')
+    parser.add_argument('--hd', '--headless', action='store_true', help='Enable headless browser mode (e.g., Chromium) for dynamic interaction testing')
     parser.add_argument('--user-agent', type=str, help='Set a custom User-Agent (e.g., simulate mobile for specific XSS detection)')
     parser.add_argument('--cookie', type=str, help='Send custom cookies (e.g., for scanning login-protected pages)')
     parser.add_argument('--max-depth', type=int, default=5, help='Set maximum crawling depth (to prevent infinite scanning)')
@@ -114,7 +114,7 @@ def main():
                 continue
 
         # Submit tasks for each URL to the executor
-        futures = [executor.submit(scan_url, url, args.level, results_queue, args.timeout, args.proxy, args.verbose, args.blacklist, args.no_external, args.headless, args.user_agent, args.cookie, args.max_depth, args.auto_update) for url in args.url]
+        futures = [executor.submit(scan_url, url, args.level, results_queue, args.timeout, args.proxy, args.verbose, args.blacklist, args.no_external, args.hd, args.user_agent, args.cookie, args.max_depth, args.auto_update) for url in args.url]
 
         # Ensure all threads complete
         for future in futures:
