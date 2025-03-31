@@ -1,6 +1,6 @@
 from json import dump, load, JSONDecodeError
 from enum import Enum
-from typing import List, Optional, Dict, Union
+from typing import List, Optional
 from threading import Lock
 from utils.logger import get_logger
 from dataclasses import dataclass
@@ -89,7 +89,7 @@ class Payloads:
         with self.lock:
             try:
                 with open(file_path, 'w') as file:
-                    dump([p.__dict__ for p in self.payload_list], file, default=str)
+                    dump([p.__dict__ for p in self.payload_list], file, default=str, indent=4)
                 self.logger.info(f"Payloads saved to {file_path}")
             except (OSError, IOError) as e:
                 self.logger.error(f"Error saving payloads to file {file_path}: {e}")
@@ -101,15 +101,14 @@ class Payloads:
                     data = load(file)
                     if not isinstance(data, list):
                         raise ValueError("Invalid data format in file")
-                    self.payload_list = []
-                    self.payload_set = set()
                     for p in data:
                         try:
                             payload_type = PayloadType(p["payload_type"])
                             encoding = Encoding(p["encoding"])
                             payload = Payload(p["payload"], payload_type, encoding)
-                            self.payload_list.append(payload)
-                            self.payload_set.add(payload)
+                            if payload not in self.payload_set:
+                                self.payload_list.append(payload)
+                                self.payload_set.add(payload)
                         except ValueError:
                             self.logger.error(f"Invalid payload type or encoding in file: {p}")
                             continue
