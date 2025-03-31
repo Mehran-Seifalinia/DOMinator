@@ -77,6 +77,7 @@ def scan_url(url, level, results_queue):
             "status": "Error",
             "error_message": str(e)
         })
+        raise  # Re-raise the exception so it can be handled in the main function
 
 # Main function
 def main():
@@ -104,12 +105,12 @@ def main():
         # Submit tasks for each URL to the executor
         futures = [executor.submit(scan_url, url, args.level, results_queue) for url in args.urls]
 
-        # Ensure all threads complete
+        # Ensure all threads complete and handle exceptions
         for future in futures:
             try:
-                future.result()  # Ensure any exceptions are raised
+                future.result()  # Ensure any exceptions are raised and handled here
             except Exception as e:
-                logger.error(f"Error in thread: {e}")
+                logger.error(f"Error in thread for URL: {e}")
 
         # Wait until all tasks in the queue have been processed
         results_queue.join()
