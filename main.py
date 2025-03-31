@@ -63,7 +63,6 @@ async def get_url_async(session, url, force, timeout):
             raise e
 
 # Scan URL
-# Scan URL
 async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, blacklist, no_external, headless, user_agent, cookie, max_depth, auto_update, report_format, session):
     try:
         start_time = time()
@@ -90,7 +89,6 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
     except Exception as e:
         logger.error(f"Error while scanning {url}: {e}")
         results_queue.put({"url": url, "status": "Error", "error_message": str(e)})
-
 
 # Write results to CSV
 def write_results_to_csv(results, output_file):
@@ -125,16 +123,10 @@ async def main():
     
     results_queue = Queue()
     
-    # Create an asynchronous session for HTTP requests
     async with ClientSession() as session:
-        tasks = []
-        for url in args.url:
-            tasks.append(scan_url_async(url, args.level, results_queue, args.timeout, args.proxy, args.verbose, args.blacklist, args.no_external, args.headless, args.user_agent, args.cookie, args.max_depth, args.auto_update, args.report_format, session))
-        
-        # Run the asynchronous tasks concurrently
+        tasks = [scan_url_async(url, args.level, results_queue, args.timeout, args.proxy, args.verbose, args.blacklist, args.no_external, args.headless, args.user_agent, args.cookie, args.max_depth, args.auto_update, args.report_format, session) for url in args.url]
         await gather(*tasks)
     
-    # Collect results
     results = []
     while not results_queue.empty():
         results.append(await results_queue.get())
