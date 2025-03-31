@@ -97,23 +97,22 @@ def scan_url(url, level, results_queue, timeout, proxy, verbose, blacklist, no_e
 def main():
     args = parse_args()
     
-    if not args.url and not args.input_file:
-        exit("Error: Either --url or --input-file must be specified.")
-    
-    if args.url and args.input_file:
-        # Print help message and exit with specific error
-        print("Error: Both --url and --input-file are provided. Please specify only one.")
-        exit()
-    
-    if args.input_file:
+    if args.url and args.list_url:
+        print("Error: Both --url and --list-url are provided. Please specify only one.")
+        exit(1)
+
+    if args.url:
+        args.url = [args.url]  # Ensure it's treated as a list for consistency
+
+    if args.list_url:
         try:
-            with open(args.input_file, 'r') as f:
+            with open(args.list_url, 'r') as f:
                 args.url = [line.strip() for line in f.readlines()]
         except FileNotFoundError:
-            exit(f"Error: File {args.input_file} not found.")
-    
+            exit(f"Error: File {args.list_url} not found.")
+
     if not args.url:
-        exit("No URLs provided.")
+        exit("Error: No URL(s) provided.")
     
     args.threads = validate_threads(args.threads)
     args.timeout = validate_timeout(args.timeout)
