@@ -7,7 +7,6 @@ from utils.logger import get_logger
 from traceback import format_exc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html5lib import parse
-from functools import lru_cache
 
 logger = get_logger()
 
@@ -59,7 +58,6 @@ class ScriptExtractor:
         # Now we can safely parse the HTML with BeautifulSoup
         self.soup = BeautifulSoup(html, "html.parser")
 
-    @lru_cache()
     def extract_scripts(self, script_type: str, attr_name: str = "src") -> List[str]:
         """General method to extract scripts based on type and attribute."""
         try:
@@ -75,15 +73,12 @@ class ScriptExtractor:
             logger.error(f"Unexpected error extracting {script_type} scripts: {e}\n{format_exc()}")
             return []
 
-    @lru_cache()
     def extract_inline_scripts(self) -> List[str]:
         return self.extract_scripts('inline')
 
-    @lru_cache()
     def extract_external_scripts(self) -> List[str]:
         return self.extract_scripts('external')
 
-    @lru_cache()
     def extract_event_handlers(self) -> Dict[str, List[Dict[str, str]]]:
         """Extracts inline event handlers (e.g., onclick, onmouseover) from HTML elements."""
         try:
@@ -99,7 +94,6 @@ class ScriptExtractor:
             logger.error(f"Unexpected error extracting event handlers: {e}\n{format_exc()}")
             return {}
 
-    @lru_cache()
     def extract_inline_styles(self) -> Dict[str, List[str]]:
         """Extracts inline styles from HTML elements and <style> tags."""
         try:
