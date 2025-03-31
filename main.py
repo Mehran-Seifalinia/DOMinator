@@ -63,11 +63,12 @@ async def get_url_async(session, url, force, timeout):
             raise e
 
 # Scan URL
+# Scan URL
 async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, blacklist, no_external, headless, user_agent, cookie, max_depth, auto_update, report_format, session):
     try:
         start_time = time()
         logger.info(f"Extracting data from {url}...")
-        event_handlers = extract(url)
+        event_handlers = await extract(session, url)
         
         logger.info(f"Running static analysis for {url}...")
         static_analyze(url, level)
@@ -89,6 +90,7 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
     except Exception as e:
         logger.error(f"Error while scanning {url}: {e}")
         results_queue.put({"url": url, "status": "Error", "error_message": str(e)})
+
 
 # Write results to CSV
 def write_results_to_csv(results, output_file):
