@@ -1,8 +1,8 @@
+from aiohttp import ClientSession, ClientTimeout, ClientError
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Queue
 from json import dump
 from time import time
-from requests import get, RequestException
 from extractors.html_parser import ScriptExtractor
 from extractors.event_handler_extractor import extract
 from scanners.static_analyzer import analyze as static_analyze
@@ -11,6 +11,8 @@ from scanners.priority_manager import rank
 from utils.logger import get_logger
 from argparse import ArgumentParser
 from sys import exit
+from asyncio import gather, run
+from csv import DictWriter
 
 # Set up logger
 logger = get_logger(__name__)
@@ -25,7 +27,7 @@ def parse_args():
     parser.add_argument('-l', '--level', type=int, choices=[1, 2, 3, 4], default=2, help='Set analysis level or filter results based on vulnerability risk level')
     parser.add_argument('-to', '--timeout', type=int, default=10, help='Set timeout (in seconds) for HTTP requests')
     parser.add_argument('-L', '--list-url', type=str, help='Path to a file containing a list of URLs to test')
-    parser.add_argument('-r', '--report-format', type=str, choices=['json', 'html'], default='json', help='Choose the format of the report')
+    parser.add_argument('-r', '--report-format', type=str, choices=['json', 'html', 'csv'], default='json', help='Choose the format of the report')
     parser.add_argument('-p', '--proxy', type=str, help='Set a proxy for HTTP requests')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
     parser.add_argument('-b', '--blacklist', type=str, help='Comma-separated list of URLs to exclude from scanning')
@@ -55,22 +57,21 @@ def validate_timeout(timeout):
         raise ValueError(f"Invalid timeout value: {timeout}. Timeout must be a positive integer.")
     return timeout
 
-# Fetch URL content
-def get_url(url, force, timeout):
+# Fetch URL content asynchronously
+async def get_url_async(session, url, force, timeout):
     try:
-        response = get(url, timeout=timeout)
-        response.raise_for_status()
-        return response.text
-    except RequestException as e:
+        async with session.get(url, timeout=ClientTimeout(total=timeout)) as response:
+            response.raise_for_status()
+            return await response.text()
+    except ClientError as e:
         if force:
             logger.warning(f"Unable to reach {url}, but continuing due to --force.")
             return {"error": "timeout", "url": url, "message": str(e)}
         else:
             raise e
 
-
 # Scan URL
-def scan_url(url, level, results_queue, timeout, proxy, verbose, blacklist, no_external, headless, user_agent, cookie, max_depth, auto_update, report_format):
+async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, blacklist, no_external, headless, user_agent, cookie, max_depth, auto_update, report_format, session):
     try:
         start_time = time()
         logger.info(f"Extracting data from {url}...")
@@ -84,7 +85,6 @@ def scan_url(url, level, results_queue, timeout, proxy, verbose, blacklist, no_e
             dynamic_analyze(url)
         except Exception as e:
             logger.warning(f"Dynamic analysis failed for {url}: {e}")
-
         
         logger.info(f"Prioritizing vulnerabilities for {url}...")
         rank(url)
@@ -97,6 +97,13 @@ def scan_url(url, level, results_queue, timeout, proxy, verbose, blacklist, no_e
     except Exception as e:
         logger.error(f"Error while scanning {url}: {e}")
         results_queue.put({"url": url, "status": "Error", "error_message": str(e)})
+
+# Write results to CSV
+def write_results_to_csv(results, output_file):
+    with open(output_file, 'w', newline='', encoding='utf-8') as f:
+        writer = DictWriter(f, fieldnames=['url', 'status', 'elapsed_time', 'error_message'])
+        writer.writeheader()
+        writer.writerows(results)
 
 # Main function
 def main():
@@ -125,23 +132,25 @@ def main():
     
     results_queue = Queue()
     
-    with ThreadPoolExecutor(max_workers=args.threads) as executor:
-        futures = {executor.submit(scan_url, url, args.level, results_queue, args.timeout, args.proxy, args.verbose, args.blacklist, args.no_external, args.headless, args.user_agent, args.cookie, args.max_depth, args.auto_update, args.report_format): url for url in args.url}
+    # Create an asynchronous session for HTTP requests
+    async with ClientSession() as session:
+        tasks = []
+        for url in args.url:
+            tasks.append(scan_url_async(url, args.level, results_queue, args.timeout, args.proxy, args.verbose, args.blacklist, args.no_external, args.headless, args.user_agent, args.cookie, args.max_depth, args.auto_update, args.report_format, session))
         
-        for future in as_completed(futures):
-            url = futures[future]
-            try:
-                future.result()
-            except Exception as e:
-                logger.error(f"Error in thread for URL {url}: {e}")
+        # Run the asynchronous tasks concurrently
+        await gather(*tasks)
     
+    # Collect results
     results = []
     while not results_queue.empty():
         results.append(results_queue.get())
     
-    if args.output:
+    if args.report_format == 'csv' and args.output:
+        write_results_to_csv(results, args.output)
+    elif args.report_format == 'json' and args.output:
         with open(args.output, 'w') as f:
             dump(results, f, indent=4)
 
 if __name__ == "__main__":
-    main()
+    run(main())
