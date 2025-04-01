@@ -104,22 +104,29 @@ class ScriptExtractor:
         """Extracts inline event handlers (e.g., onclick, onmouseover) from HTML elements."""
         try:
             event_handlers = defaultdict(list)
+            # Iterate over all tags and check for event handlers
             for tag in self.soup.find_all(True):
                 handlers = {attr: value.strip() for attr, value in tag.attrs.items() if attr.lower().startswith("on") and value.strip()}
                 if handlers:
                     event_handlers[tag.name].append(handlers)
+    
             # Filter event handlers related to DOM XSS using patterns
             dom_xss_event_handlers = defaultdict(list)
             for tag, handlers in event_handlers.items():
                 for handler in handlers:
-                    if any(re.search(pattern, handler.get('onclick', '')) for pattern in DOM_XSS_PATTERNS):
-                        dom_xss_event_handlers[tag].append(handler)
+                    # Check all event handlers (not just 'onclick')
+                    for event_attr, event_value in handler.items():
+                        if any(re.search(pattern, event_value) for pattern in DOM_XSS_PATTERNS):
+                            dom_xss_event_handlers[tag].append(handler)
+            
             if not dom_xss_event_handlers:
                 logger.warning("No event handlers found that may lead to DOM XSS.")
+            
             return dom_xss_event_handlers
         except Exception as e:
             logger.error(f"Unexpected error extracting event handlers: {e}\n{format_exc()}")
             return {}
+
 
     def extract_inline_styles(self) -> Dict[str, List[str]]:
         """Extracts inline styles from HTML elements and <style> tags."""
