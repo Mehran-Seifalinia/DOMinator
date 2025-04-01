@@ -68,7 +68,16 @@ class ScriptExtractor:
             return []
 
     def extract_inline_scripts(self) -> List[str]:
-        return self.extract_scripts('inline')
+        """Extract inline scripts and filter for potential DOM XSS patterns."""
+        scripts = self.extract_scripts('inline')
+        # Define common DOM XSS patterns (e.g., eval, document.write, etc.)
+        dom_xss_patterns = ['eval(', 'document.write(', 'setTimeout(', 'setInterval(', 'innerHTML']
+        filtered_scripts = [
+            script for script in scripts if any(pattern in script for pattern in dom_xss_patterns)
+        ]
+        if not filtered_scripts:
+            logger.warning("No potential DOM XSS inline scripts found.")
+        return filtered_scripts
 
     def extract_external_scripts(self) -> List[str]:
         return self.extract_scripts('external')
@@ -81,9 +90,12 @@ class ScriptExtractor:
                 handlers = {attr: value.strip() for attr, value in tag.attrs.items() if attr.lower().startswith("on") and value.strip()}
                 if handlers:
                     event_handlers[tag.name].append(handlers)
-            if not event_handlers:
-                logger.warning("No event handlers found.")
-            return dict(event_handlers)
+            # Filter event handlers related to DOM XSS
+            dom_xss_event_handlers = {key: value for key, value in event_handlers.items() if any(
+                'eval(' in handler.get('onclick', '') for handler in value) }  # Add more filters if necessary
+            if not dom_xss_event_handlers:
+                logger.warning("No event handlers found that may lead to DOM XSS.")
+            return dom_xss_event_handlers
         except Exception as e:
             logger.error(f"Unexpected error extracting event handlers: {e}\n{format_exc()}")
             return {}
