@@ -2,22 +2,19 @@ from sys import argv
 from asyncio import Lock, gather, run
 from utils.logger import get_logger
 from typing import List, Union, Optional
+from aiohttp import ClientSession
+from re import findall
 
 # Set up logging (use get_logger instead of basicConfig)
 logger = get_logger()
 
 class ExternalFetcher:
     def __init__(self, urls: List[str], proxy: Optional[str] = None, timeout: int = 10):
-        """
-        Initializes the ExternalFetcher class with a list of URLs,
-        an optional proxy URL, and a timeout setting for requests.
-        """
         self.urls: List[str] = urls
         self.proxy: Optional[str] = proxy
         self.timeout: int = timeout
 
     async def fetch_script(self, session, url: str) -> Optional[str]:
-        """Fetches script content from a given URL."""
         try:
             async with session.get(url, timeout=self.timeout, proxy=self.proxy) as response:
                 if response.status == 200:
@@ -28,22 +25,16 @@ class ExternalFetcher:
         return None
 
     async def process_script(self, content: str, url: str) -> Optional[dict]:
-        """Processes the JavaScript content to extract event listeners and potential security risks."""
         try:
             logger.info(f"Processing script from {url}")
 
-            # Skip minified scripts
             if ".min.js" in url:
                 logger.warning(f"Skipping minified script: {url}")
                 return None
 
-            # Extract event listeners (e.g., `element.addEventListener("click", function() {...})`)
             event_listeners = findall(r'\.addEventListener\(["\'](\w+)["\']', content)
-
-            # Check for risky functions such as eval(), setTimeout(), setInterval(), document.write()
             risky_functions = findall(r'\b(eval|setTimeout|setInterval|document\.write)\b', content)
 
-            # Store the results
             script_analysis = {
                 "url": url,
                 "event_listeners": list(set(event_listeners)),
@@ -58,7 +49,6 @@ class ExternalFetcher:
             return None
 
     async def fetch_and_process_scripts(self) -> None:
-        """Fetches and processes scripts."""
         try:
             async with ClientSession() as session:
                 tasks = [self.fetch_script(session, url) for url in self.urls]
@@ -78,8 +68,8 @@ if __name__ == "__main__":
         "https://example.com/script1.js",
         "https://example.com/script2.js"
     ]
-    proxy: Optional[str] = None  # Optional proxy URL
-    timeout: int = 10  # Default timeout in seconds
+    proxy: Optional[str] = None
+    timeout: int = 10
     fetcher = ExternalFetcher(urls, proxy=proxy, timeout=timeout)
 
     async def main() -> None:
