@@ -1,7 +1,7 @@
 from os import getenv
 from typing import Dict, List, Optional
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from bs4 import BeautifulSoup
 from utils.logger import get_logger
 from traceback import format_exc
@@ -24,17 +24,10 @@ def validate_html(html: str) -> bool:
 
 @dataclass
 class ScriptData:
-    inline_scripts: List[str]
-    external_scripts: List[str]
-    event_handlers: Dict[str, List[Dict[str, str]]]
-    inline_styles: Dict[str, List[str]]
-
-    def __init__(self, inline_scripts: Optional[List[str]] = None, external_scripts: Optional[List[str]] = None,
-                 event_handlers: Optional[Dict[str, List[Dict[str, str]]]] = None, inline_styles: Optional[Dict[str, List[str]]] = None):
-        self.inline_scripts = inline_scripts or []
-        self.external_scripts = external_scripts or []
-        self.event_handlers = event_handlers or {}
-        self.inline_styles = inline_styles or {}
+    inline_scripts: List[str] = field(default_factory=list)
+    external_scripts: List[str] = field(default_factory=list)
+    event_handlers: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
+    inline_styles: Dict[str, List[str]] = field(default_factory=dict)
 
     def __str__(self) -> str:
         """Return a formatted string representation of extracted data."""
@@ -50,7 +43,7 @@ class ScriptExtractor:
 
     def __init__(self, html: str):
         if not html or not isinstance(html, str) or not html.strip():
-            raise ValueError("Invalid input: HTML content must be a non-empty string.")
+            raise TypeError("HTML content must be a non-empty string.")
         
         # Validate HTML content before processing
         if not validate_html(html):
@@ -126,7 +119,8 @@ class ScriptExtractor:
             result = {}
             # Collect results as each task completes
             for future in as_completed(futures):
-                key = futures[future]
+                # Correct way to get the key associated with the future
+                key = list(futures.keys())[list(futures.values()).index(futures[future])]
                 try:
                     result[key] = future.result()
                 except Exception as e:
@@ -139,4 +133,3 @@ class ScriptExtractor:
                 event_handlers=result.get("event_handlers", {}),
                 inline_styles=result.get("inline_styles", {})
             )
-
