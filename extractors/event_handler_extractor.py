@@ -1,11 +1,21 @@
 import asyncio
 from urllib.parse import urlparse
-from typing import List, Dict, Union, Optional
+from typing import List, Dict, Union, Optional, Any
+from dataclasses import dataclass
 from aiohttp import ClientSession, TCPConnector, ClientTimeout
+from tenacity import retry, stop_after_attempt, wait_exponential
 from extractors.html_parser import ScriptExtractor
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+@dataclass
+class ExtractionResult:
+    """Dataclass for standardized extraction results"""
+    status: str  # "success" or "error"
+    data: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    message: Optional[str] = None
 
 class EventHandlerExtractorError(Exception):
     """Base exception class for EventHandlerExtractor errors"""
@@ -17,10 +27,18 @@ class EventHandlerExtractor:
         Initialize the event handler extractor with HTML content.
         
         Args:
-            html: The HTML content to extract event handlers from
+            html: The HTML content to extract event handlers from (non-empty string)
             proxy: Optional proxy server to use
             user_agent: Optional user agent string to use
+            
+        Raises:
+            EventHandlerExtractorError: If HTML content is invalid or initialization fails
         """
+        if not html or not isinstance(html, str):
+            error_msg = "HTML content must be a non-empty string"
+            logger.error(error_msg)
+            raise EventHandlerExtractorError(error_msg)
+            
         try:
             self.extractor = ScriptExtractor(html, proxy=proxy, user_agent=user_agent)
             logger.info("Successfully initialized ScriptExtractor.")
@@ -31,48 +49,66 @@ class EventHandlerExtractor:
             logger.error(f"Unexpected error during initialization: {e}")
             raise EventHandlerExtractorError(f"Initialization failed: {e}") from e
 
-    def extract_event_handlers(self) -> Dict[str, Union[str, Dict]]:
+    def extract_event_handlers(self) -> ExtractionResult:
         """
         Extract event handlers from the HTML content.
         
         Returns:
-            Dictionary containing either:
-            - The extracted event handlers under 'data' key
-            - Error information under 'error' key
+            ExtractionResult: Contains either:
+                - status="success" and data with extracted handlers
+                - status="error" with error details
         """
         try:
             event_handlers = self.extractor.extract_event_handlers()
             if not event_handlers:
                 logger.info("No event handlers found.")
-                return {"status": "success", "data": {}, "message": "No event handlers found"}
+                return ExtractionResult(
+                    status="success",
+                    data={},
+                    message="No event handlers found"
+                )
             
             logger.info(f"Successfully extracted {len(event_handlers)} event handlers")
-            return {"status": "success", "data": event_handlers}
+            return ExtractionResult(
+                status="success",
+                data=event_handlers
+            )
         except Exception as e:
             logger.error(f"Error extracting event handlers: {e}")
-            return {"status": "error", "error": str(e), "message": "Extraction failed"}
+            return ExtractionResult(
+                status="error",
+                error=str(e),
+                message="Extraction failed"
+            )
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    reraise=True
+)
 async def fetch_html(
     session: ClientSession, 
     url: str, 
     timeout: int = 10,
+    max_size: int = 10_000_000,  # 10MB default
     proxy: Optional[str] = None, 
     user_agent: Optional[str] = None
-) -> Dict[str, Union[str, Dict]]:
+) -> ExtractionResult:
     """
-    Fetch HTML content from a given URL.
+    Fetch HTML content from a given URL with retry mechanism.
     
     Args:
         session: aiohttp ClientSession to use for the request
         url: URL to fetch
         timeout: Request timeout in seconds
+        max_size: Maximum response size in bytes
         proxy: Optional proxy server to use
         user_agent: Optional user agent string
         
     Returns:
-        Dictionary containing either:
-        - The HTML content under 'data' key
-        - Error information under 'error' key
+        ExtractionResult: Contains either:
+            - status="success" and data with HTML content
+            - status="error" with error details
     """
     try:
         headers = {'User-Agent': user_agent} if user_agent else {}
@@ -82,29 +118,33 @@ async def fetch_html(
             url, 
             timeout=timeout_settings, 
             headers=headers,
-            proxy=proxy
+            proxy=proxy,
+            read_bufsize=max_size
         ) as response:
             response.raise_for_status()
             html = await response.text()
             
             if not html.strip():
                 logger.error(f"Empty HTML response from {url}")
-                return {
-                    "status": "error",
-                    "error": "empty_response",
-                    "message": f"Empty HTML response from {url}"
-                }
+                return ExtractionResult(
+                    status="error",
+                    error="empty_response",
+                    message=f"Empty HTML response from {url}"
+                )
                 
             logger.info(f"Successfully fetched HTML from {url}")
-            return {"status": "success", "data": html}
+            return ExtractionResult(
+                status="success",
+                data={"html": html}
+            )
             
     except Exception as e:
         logger.error(f"Failed to fetch HTML from {url}: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "message": f"Failed to fetch HTML from {url}"
-        }
+        return ExtractionResult(
+            status="error",
+            error=str(e),
+            message=f"Failed to fetch HTML from {url}"
+        )
 
 def is_valid_url(url: str) -> bool:
     """Validate URL format"""
@@ -118,9 +158,10 @@ async def extract(
     session: ClientSession, 
     url: str, 
     timeout: int = 10,
+    max_size: int = 10_000_000,
     proxy: Optional[str] = None, 
     user_agent: Optional[str] = None
-) -> Dict[str, Union[str, Dict]]:
+) -> ExtractionResult:
     """
     Extract event handlers from a given URL.
     
@@ -128,70 +169,82 @@ async def extract(
         session: aiohttp ClientSession to use
         url: URL to extract from
         timeout: Request timeout in seconds
+        max_size: Maximum response size in bytes
         proxy: Optional proxy server to use
         user_agent: Optional user agent string
         
     Returns:
-        Dictionary containing either:
-        - The extracted event handlers under 'data' key
-        - Error information under 'error' key
+        ExtractionResult: Contains either:
+            - status="success" and data with extracted handlers
+            - status="error" with error details
     """
     if not is_valid_url(url):
         logger.error(f"Invalid URL: {url}")
-        return {
-            "status": "error",
-            "error": "invalid_url",
-            "message": f"Invalid URL: {url}"
-        }
+        return ExtractionResult(
+            status="error",
+            error="invalid_url",
+            message=f"Invalid URL: {url}"
+        )
     
-    html_response = await fetch_html(session, url, timeout, proxy, user_agent)
-    if html_response["status"] != "success":
+    html_response = await fetch_html(session, url, timeout, max_size, proxy, user_agent)
+    if html_response.status != "success":
         return html_response
         
     try:
-        extractor = EventHandlerExtractor(html_response["data"], proxy, user_agent)
+        extractor = EventHandlerExtractor(html_response.data["html"], proxy, user_agent)
         return extractor.extract_event_handlers()
     except Exception as e:
         logger.error(f"Error during extraction from {url}: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "message": f"Extraction failed for {url}"
-        }
+        return ExtractionResult(
+            status="error",
+            error=str(e),
+            message=f"Extraction failed for {url}"
+        )
 
 async def run_extraction(
     urls: List[str], 
     timeout: int = 10,
+    max_size: int = 10_000_000,
     proxy: Optional[str] = None, 
-    user_agent: Optional[str] = None
-) -> List[Dict[str, Union[str, Dict]]]:
+    user_agent: Optional[str] = None,
+    max_concurrent: int = 10
+) -> List[ExtractionResult]:
     """
-    Run extraction for multiple URLs concurrently.
+    Run extraction for multiple URLs concurrently with connection pooling.
     
     Args:
         urls: List of URLs to process
         timeout: Request timeout in seconds
+        max_size: Maximum response size in bytes
         proxy: Optional proxy server to use
         user_agent: Optional user agent string
+        max_concurrent: Maximum concurrent connections per host
         
     Returns:
-        List of results for each URL
+        List of ExtractionResult for each URL
     """
-    connector = TCPConnector(ssl=True, limit_per_host=10)
+    connector = TCPConnector(
+        ssl=True,
+        limit_per_host=max_concurrent,
+        keepalive_timeout=30
+    )
     
     async with ClientSession(connector=connector) as session:
-        tasks = [extract(session, url, timeout, proxy, user_agent) for url in urls]
+        tasks = [
+            extract(session, url, timeout, max_size, proxy, user_agent) 
+            for url in urls
+        ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Convert exceptions to error dictionaries
+        # Convert exceptions to error results
         processed_results = []
         for result in results:
             if isinstance(result, Exception):
-                processed_results.append({
-                    "status": "error",
-                    "error": str(result),
-                    "message": "Unexpected error occurred"
-                })
+                processed_results.append(ExtractionResult(
+                    status="error",
+                    error=str(result),
+                    message="Unexpected error occurred"
+                ))
             else:
                 processed_results.append(result)
                 
@@ -200,31 +253,51 @@ async def run_extraction(
 async def async_main(
     urls: List[str], 
     timeout: int = 10,
+    max_size: int = 10_000_000,
     proxy: Optional[str] = None, 
-    user_agent: Optional[str] = None
-) -> List[Dict[str, Union[str, Dict]]]:
+    user_agent: Optional[str] = None,
+    max_concurrent: int = 10
+) -> List[ExtractionResult]:
     """Async entry point for the extraction process"""
-    return await run_extraction(urls, timeout, proxy, user_agent)
+    return await run_extraction(
+        urls, 
+        timeout, 
+        max_size, 
+        proxy, 
+        user_agent, 
+        max_concurrent
+    )
 
 def main(
     urls: List[str], 
     timeout: int = 10,
+    max_size: int = 10_000_000,
     proxy: Optional[str] = None, 
-    user_agent: Optional[str] = None
-) -> List[Dict[str, Union[str, Dict]]]:
+    user_agent: Optional[str] = None,
+    max_concurrent: int = 10
+) -> List[ExtractionResult]:
     """
     Main entry point for the extraction process.
     
     Args:
         urls: List of URLs to process
         timeout: Request timeout in seconds (default: 10)
+        max_size: Maximum response size in bytes (default: 10MB)
         proxy: Optional proxy server to use
         user_agent: Optional user agent string
+        max_concurrent: Maximum concurrent connections per host (default: 10)
         
     Returns:
-        List of results for each URL
+        List of ExtractionResult for each URL
     """
-    return asyncio.run(async_main(urls, timeout, proxy, user_agent))
+    return asyncio.run(async_main(
+        urls, 
+        timeout, 
+        max_size, 
+        proxy, 
+        user_agent, 
+        max_concurrent
+    ))
 
 if __name__ == "__main__":
     # Example usage
@@ -235,7 +308,18 @@ if __name__ == "__main__":
     ]
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
     
-    results = main(test_urls, timeout=15, user_agent=user_agent)
+    results = main(
+        test_urls, 
+        timeout=15, 
+        user_agent=user_agent,
+        max_concurrent=5
+    )
+    
     for url, result in zip(test_urls, results):
-        print(f"URL: {url}")
-        print(f"Result: {result}\n")
+        print(f"\nURL: {url}")
+        print(f"Status: {result.status}")
+        if result.status == "success":
+            print(f"Data: {result.data}")
+        else:
+            print(f"Error: {result.error}")
+            print(f"Message: {result.message}")
