@@ -16,13 +16,22 @@ class ExternalFetcher:
 
     async def fetch_script(self, session, url: str) -> Optional[str]:
         try:
-            async with session.get(url, timeout=self.timeout, proxy=self.proxy) as response:
-                if response.status == 200:
-                    return await response.text()
-                logger.error(f"Failed to fetch {url}: HTTP {response.status}")
+            if self.proxy:
+                logger.info(f"Using proxy: {self.proxy}")
+                async with session.get(url, timeout=self.timeout, proxy=self.proxy) as response:
+                    if response.status == 200:
+                        return await response.text()
+                    else:
+                        logger.error(f"Failed to fetch {url}: HTTP {response.status}")
+            else:
+                async with session.get(url, timeout=self.timeout) as response:
+                    if response.status == 200:
+                        return await response.text()
+                    else:
+                        logger.error(f"Failed to fetch {url}: HTTP {response.status}")
         except Exception as e:
             logger.error(f"Error fetching {url}: {e}")
-        return None
+        return None  # Explicitly return None if fetch fails
 
     async def process_script(self, content: str, url: str) -> Optional[dict]:
         try:
