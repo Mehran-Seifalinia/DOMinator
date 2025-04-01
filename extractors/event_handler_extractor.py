@@ -23,17 +23,6 @@ class EventHandlerExtractorError(Exception):
 
 class EventHandlerExtractor:
     def __init__(self, html: str, proxy: Optional[str] = None, user_agent: Optional[str] = None):
-        """
-        Initialize the event handler extractor with HTML content.
-        
-        Args:
-            html: The HTML content to extract event handlers from (non-empty string)
-            proxy: Optional proxy server to use
-            user_agent: Optional user agent string to use
-            
-        Raises:
-            EventHandlerExtractorError: If HTML content is invalid or initialization fails
-        """
         if not html or not isinstance(html, str):
             error_msg = "HTML content must be a non-empty string"
             logger.error(error_msg)
@@ -50,14 +39,6 @@ class EventHandlerExtractor:
             raise EventHandlerExtractorError(f"Initialization failed: {e}") from e
 
     def extract_event_handlers(self) -> ExtractionResult:
-        """
-        Extract event handlers from the HTML content.
-        
-        Returns:
-            ExtractionResult: Contains either:
-                - status="success" and data with extracted handlers
-                - status="error" with error details
-        """
         try:
             event_handlers = self.extractor.extract_event_handlers()
             if not event_handlers:
@@ -67,7 +48,6 @@ class EventHandlerExtractor:
                     data={},
                     message="No event handlers found"
                 )
-            
             logger.info(f"Successfully extracted {len(event_handlers)} event handlers")
             return ExtractionResult(
                 status="success",
@@ -90,26 +70,10 @@ async def fetch_html(
     session: ClientSession, 
     url: str, 
     timeout: int = 10,
-    max_size: int = 10_000_000,  # 10MB default
+    max_size: int = 10_000_000,
     proxy: Optional[str] = None, 
     user_agent: Optional[str] = None
 ) -> ExtractionResult:
-    """
-    Fetch HTML content from a given URL with retry mechanism.
-    
-    Args:
-        session: aiohttp ClientSession to use for the request
-        url: URL to fetch
-        timeout: Request timeout in seconds
-        max_size: Maximum response size in bytes
-        proxy: Optional proxy server to use
-        user_agent: Optional user agent string
-        
-    Returns:
-        ExtractionResult: Contains either:
-            - status="success" and data with HTML content
-            - status="error" with error details
-    """
     try:
         headers = {'User-Agent': user_agent} if user_agent else {}
         timeout_settings = ClientTimeout(total=timeout)
@@ -147,7 +111,6 @@ async def fetch_html(
         )
 
 def is_valid_url(url: str) -> bool:
-    """Validate URL format"""
     try:
         result = urlparse(url)
         return all([result.scheme in ('http', 'https'), result.netloc])
@@ -162,22 +125,6 @@ async def extract(
     proxy: Optional[str] = None, 
     user_agent: Optional[str] = None
 ) -> ExtractionResult:
-    """
-    Extract event handlers from a given URL.
-    
-    Args:
-        session: aiohttp ClientSession to use
-        url: URL to extract from
-        timeout: Request timeout in seconds
-        max_size: Maximum response size in bytes
-        proxy: Optional proxy server to use
-        user_agent: Optional user agent string
-        
-    Returns:
-        ExtractionResult: Contains either:
-            - status="success" and data with extracted handlers
-            - status="error" with error details
-    """
     if not is_valid_url(url):
         logger.error(f"Invalid URL: {url}")
         return ExtractionResult(
@@ -209,20 +156,6 @@ async def run_extraction(
     user_agent: Optional[str] = None,
     max_concurrent: int = 10
 ) -> List[ExtractionResult]:
-    """
-    Run extraction for multiple URLs concurrently with connection pooling.
-    
-    Args:
-        urls: List of URLs to process
-        timeout: Request timeout in seconds
-        max_size: Maximum response size in bytes
-        proxy: Optional proxy server to use
-        user_agent: Optional user agent string
-        max_concurrent: Maximum concurrent connections per host
-        
-    Returns:
-        List of ExtractionResult for each URL
-    """
     connector = TCPConnector(
         ssl=True,
         limit_per_host=max_concurrent,
@@ -236,7 +169,6 @@ async def run_extraction(
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Convert exceptions to error results
         processed_results = []
         for result in results:
             if isinstance(result, Exception):
@@ -258,7 +190,6 @@ async def async_main(
     user_agent: Optional[str] = None,
     max_concurrent: int = 10
 ) -> List[ExtractionResult]:
-    """Async entry point for the extraction process"""
     return await run_extraction(
         urls, 
         timeout, 
@@ -276,20 +207,6 @@ def main(
     user_agent: Optional[str] = None,
     max_concurrent: int = 10
 ) -> List[ExtractionResult]:
-    """
-    Main entry point for the extraction process.
-    
-    Args:
-        urls: List of URLs to process
-        timeout: Request timeout in seconds (default: 10)
-        max_size: Maximum response size in bytes (default: 10MB)
-        proxy: Optional proxy server to use
-        user_agent: Optional user agent string
-        max_concurrent: Maximum concurrent connections per host (default: 10)
-        
-    Returns:
-        List of ExtractionResult for each URL
-    """
     return asyncio.run(async_main(
         urls, 
         timeout, 
@@ -300,7 +217,6 @@ def main(
     ))
 
 if __name__ == "__main__":
-    # Example usage
     test_urls = [
         "https://example.com", 
         "https://example.org",
