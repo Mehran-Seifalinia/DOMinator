@@ -9,9 +9,10 @@ from traceback import format_exc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html5lib import parse
 
+# Logger setup
 logger = get_logger()
 
-# RegEx Patterns for DOM XSS detection
+# RegEx Patterns for DOM XSS detection (can be extended or customized)
 DOM_XSS_PATTERNS = [
     r"eval\(", r"document\.write\(", r"setTimeout\(", r"setInterval\(", r"innerHTML", 
     r"document\.location", r"Function\(", r"window\.location", r"window\.eval", 
@@ -20,8 +21,6 @@ DOM_XSS_PATTERNS = [
     r"location\.replace", r"localStorage", r"sessionStorage", r"window\.open",
     r"alert\(", r"console\.log\(", r"confirm\(", r"prompt\("
 ]
-
-logger = get_logger()
 
 def validate_html(html: str) -> bool:
     """Validates the HTML content using html5lib."""
@@ -94,6 +93,7 @@ class ScriptExtractor:
         return filtered_scripts
 
     def extract_external_scripts(self) -> List[str]:
+        """Extract external scripts."""
         return self.extract_scripts('external')
 
     def extract_event_handlers(self) -> Dict[str, List[Dict[str, str]]]:
