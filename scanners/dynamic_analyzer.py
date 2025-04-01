@@ -5,7 +5,6 @@ from playwright.async_api import async_playwright
 from extractors.event_handler_extractor import EventHandlerExtractor
 from extractors.external_fetcher import ExternalFetcher
 from scanners.priority_manager import PriorityManager
-from utils.caching import CacheManager
 from utils.logger import get_logger
 
 # Get the logger instance from logger.py
@@ -16,7 +15,6 @@ class DynamicAnalyzer:
         self.html_content = html_content
         self.external_urls = external_urls
         self.priority_manager = PriorityManager()
-        self.cache_manager = CacheManager()
 
     def analyze_event_handlers(self) -> Dict[str, List[str]]:
         """Extract and analyze event handlers from HTML"""
@@ -64,7 +62,7 @@ class DynamicAnalyzer:
         event_handlers = self.analyze_event_handlers()
         await self.fetch_and_analyze_external_scripts()
         dom_results = await self.execute_in_browser()
-        self.cache_manager.save_results("dynamic_analysis", {"event_handlers": event_handlers, "dom_results": dom_results})
+        logger.info(f"Dynamic analysis results: {event_handlers}, {dom_results}")
 
 if __name__ == "__main__":
     html_content = "<html><body><div onclick='alert(\"Hello\");'></div></body></html>"
