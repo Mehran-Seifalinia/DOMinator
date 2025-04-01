@@ -1,5 +1,6 @@
 import asyncio
 from aiohttp import ClientSession, TCPConnector, ClientTimeout
+from urllib.parse import urlparse
 from extractors.html_parser import ScriptExtractor
 from utils.logger import get_logger
 
@@ -50,8 +51,11 @@ async def fetch_html(session: ClientSession, url: str, timeout: int, proxy: str 
         return {"error": "Failed to fetch HTML"}
 
 def is_valid_url(url: str) -> bool:
-    # A simple validation check for URLs (can be extended)
-    return url.startswith("http://") or url.startswith("https://")
+    """
+    A more robust URL validation using urllib.parse.
+    """
+    parsed_url = urlparse(url)
+    return parsed_url.scheme in ['http', 'https'] and bool(parsed_url.netloc)
 
 async def extract(session: ClientSession, url: str, timeout: int, proxy: str = None, user_agent: str = None) -> dict:
     if not is_valid_url(url):
@@ -76,6 +80,9 @@ async def run_extraction(urls: list, timeout: int, proxy: str = None, user_agent
         return results
 
 def main(urls: list, timeout: int = 10, proxy: str = None, user_agent: str = None):
+    """
+    Main function to run the extraction for multiple URLs.
+    """
     loop = asyncio.get_event_loop()  # Use the event loop directly
     return loop.run_until_complete(run_extraction(urls, timeout, proxy, user_agent))
 
