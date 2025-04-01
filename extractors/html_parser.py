@@ -20,7 +20,10 @@ DOM_XSS_PATTERNS = [
     r"document\.createElement", r"document\.createTextNode", r"String\(", 
     r"unescape\(", r"decodeURIComponent\(", r"escape\(", r"XMLHttpRequest", 
     r"location\.replace", r"localStorage", r"sessionStorage", r"window\.open",
-    r"alert\(", r"console\.log\(", r"confirm\(", r"prompt\("
+    r"alert\(", r"console\.log\(", r"confirm\(", r"prompt\(", 
+    r"insertAdjacentHTML\(", r"insertBefore\(", r"outerHTML", r"createRange", r"createContextualFragment",
+    r"window\.open\(", r"location\.href", r"document\.location\.href", r"document\.domain", 
+    r"document\.getElementById\(", r"document\.getElementsByClassName\(", r"document\.getElementsByName\("
 ]
 
 def validate_html(html: str) -> bool:
