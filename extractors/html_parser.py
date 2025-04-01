@@ -1,5 +1,5 @@
 from os import getenv
-from typing import Dict, List
+from typing import Dict, List, Optional
 from collections import defaultdict
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
@@ -29,11 +29,12 @@ class ScriptData:
     event_handlers: Dict[str, List[Dict[str, str]]]
     inline_styles: Dict[str, List[str]]
 
-    def __init__(self, inline_scripts=None, external_scripts=None, event_handlers=None, inline_styles=None):
+    def __init__(self, inline_scripts: Optional[List[str]] = None, external_scripts: Optional[List[str]] = None,
+                 event_handlers: Optional[Dict[str, List[Dict[str, str]]]] = None, inline_styles: Optional[Dict[str, List[str]]] = None):
         self.inline_scripts = inline_scripts or []
         self.external_scripts = external_scripts or []
-        self.event_handlers = event_handlers or defaultdict(list)
-        self.inline_styles = inline_styles or defaultdict(list)
+        self.event_handlers = event_handlers or {}
+        self.inline_styles = inline_styles or {}
 
     def __str__(self) -> str:
         """Return a formatted string representation of extracted data."""
@@ -113,7 +114,7 @@ class ScriptExtractor:
 
     def get_scripts(self) -> ScriptData:
         """Extracts inline JavaScript, external scripts, inline event handlers, and inline styles from HTML content."""
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(max_workers=4) as executor:
             # Submit each task for concurrent execution
             futures = {
                 executor.submit(self.extract_inline_scripts): "inline_scripts",
@@ -138,3 +139,4 @@ class ScriptExtractor:
                 event_handlers=result.get("event_handlers", {}),
                 inline_styles=result.get("inline_styles", {})
             )
+
