@@ -1,5 +1,5 @@
 from asyncio import run, gather
-from aiohttp import ClientSession
+from aiohttp import ClientSession, TCPConnector
 from extractors.html_parser import ScriptExtractor
 from utils.logger import get_logger
 
@@ -21,11 +21,10 @@ class EventHandlerExtractor:
         try:
             event_handlers = self.extractor.extract_event_handlers()
             
-            if event_handlers is not None and len(event_handlers) > 0:
-                logger.info(f"Event handlers extracted: {event_handlers}")
-            else:
+            if not event_handlers:
                 logger.info("No event handlers found.")
-
+                return {"error": "No event handlers found"}
+            logger.info(f"Event handlers extracted: {event_handlers}")
             return event_handlers
         except Exception as e:
             logger.error(f"Error extracting event handlers: {e}")
@@ -34,7 +33,10 @@ class EventHandlerExtractor:
 async def fetch_html(session: ClientSession, url: str, timeout: int, proxy: str = None, user_agent: str = None) -> str:
     try:
         headers = {'User-Agent': user_agent} if user_agent else {}
-        async with session.get(url, timeout=timeout, proxy=proxy, headers=headers) as response:
+        connector = TCPConnector(ssl=False, limit_per_host=10)
+        if proxy:
+            connector = TCPConnector(ssl=False, limit_per_host=10, proxy=proxy)
+        async with session.get(url, timeout=timeout, headers=headers, connector=connector) as response:
             response.raise_for_status()
             html = await response.text()
             if not html.strip():
@@ -61,7 +63,7 @@ async def extract(session: ClientSession, url: str, timeout: int, proxy: str = N
 async def run_extraction(urls: list, timeout: int, proxy: str = None, user_agent: str = None):
     async with ClientSession() as session:
         tasks = [extract(session, url, timeout, proxy, user_agent) for url in urls]
-        results = await gather(*tasks)
+        results = await gather(*tasks, return_exceptions=True)
         return results
 
 def main(urls: list, timeout: int = 10, proxy: str = None, user_agent: str = None):
