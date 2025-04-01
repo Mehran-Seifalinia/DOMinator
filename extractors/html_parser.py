@@ -1,3 +1,4 @@
+import re
 from os import getenv
 from typing import Dict, List, Optional
 from collections import defaultdict
@@ -7,6 +8,18 @@ from utils.logger import get_logger
 from traceback import format_exc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html5lib import parse
+
+logger = get_logger()
+
+# RegEx Patterns for DOM XSS detection
+DOM_XSS_PATTERNS = [
+    r"eval\(", r"document\.write\(", r"setTimeout\(", r"setInterval\(", r"innerHTML", 
+    r"document\.location", r"Function\(", r"window\.location", r"window\.eval", 
+    r"document\.createElement", r"document\.createTextNode", r"String\(", 
+    r"unescape\(", r"decodeURIComponent\(", r"escape\(", r"XMLHttpRequest", 
+    r"location\.replace", r"localStorage", r"sessionStorage", r"window\.open",
+    r"alert\(", r"console\.log\(", r"confirm\(", r"prompt\("
+]
 
 logger = get_logger()
 
@@ -70,11 +83,12 @@ class ScriptExtractor:
     def extract_inline_scripts(self) -> List[str]:
         """Extract inline scripts and filter for potential DOM XSS patterns."""
         scripts = self.extract_scripts('inline')
-        # Define common DOM XSS patterns (e.g., eval, document.write, etc.)
-        dom_xss_patterns = ['eval(', 'document.write(', 'setTimeout(', 'setInterval(', 'innerHTML']
-        filtered_scripts = [
-            script for script in scripts if any(pattern in script for pattern in dom_xss_patterns)
-        ]
+        filtered_scripts = []
+        for script in scripts:
+            for pattern in DOM_XSS_PATTERNS:
+                if re.search(pattern, script):
+                    filtered_scripts.append(script)
+                    break
         if not filtered_scripts:
             logger.warning("No potential DOM XSS inline scripts found.")
         return filtered_scripts
@@ -90,9 +104,12 @@ class ScriptExtractor:
                 handlers = {attr: value.strip() for attr, value in tag.attrs.items() if attr.lower().startswith("on") and value.strip()}
                 if handlers:
                     event_handlers[tag.name].append(handlers)
-            # Filter event handlers related to DOM XSS
-            dom_xss_event_handlers = {key: value for key, value in event_handlers.items() if any(
-                'eval(' in handler.get('onclick', '') for handler in value) }  # Add more filters if necessary
+            # Filter event handlers related to DOM XSS using patterns
+            dom_xss_event_handlers = defaultdict(list)
+            for tag, handlers in event_handlers.items():
+                for handler in handlers:
+                    if any(re.search(pattern, handler.get('onclick', '')) for pattern in DOM_XSS_PATTERNS):
+                        dom_xss_event_handlers[tag].append(handler)
             if not dom_xss_event_handlers:
                 logger.warning("No event handlers found that may lead to DOM XSS.")
             return dom_xss_event_handlers
@@ -104,7 +121,6 @@ class ScriptExtractor:
         """Extracts inline styles from HTML elements and <style> tags."""
         try:
             styles = defaultdict(list)
-            
             for tag in self.soup.find_all(style=True):
                 styles[tag.name].append(tag["style"].strip())
 
