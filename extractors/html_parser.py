@@ -8,6 +8,7 @@ from utils.logger import get_logger
 from traceback import format_exc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html5lib import parse
+import json
 
 # Logger setup
 logger = get_logger()
@@ -147,7 +148,6 @@ class ScriptExtractor:
             result = {}
             # Collect results as each task completes
             for future in as_completed(futures):
-                # Correct way to get the key associated with the future
                 key = list(futures.keys())[list(futures.values()).index(futures[future])]
                 try:
                     result[key] = future.result()
@@ -161,3 +161,15 @@ class ScriptExtractor:
                 event_handlers=result.get("event_handlers", {}),
                 inline_styles=result.get("inline_styles", {})
             )
+
+    def generate_report(self, script_data: ScriptData) -> Dict[str, str]:
+        """Generate a comprehensive report of findings."""
+        report = {
+            "inline_scripts": len(script_data.inline_scripts),
+            "external_scripts": len(script_data.external_scripts),
+            "event_handlers": sum(len(v) for v in script_data.event_handlers.values()),
+            "inline_styles": sum(len(v) for v in script_data.inline_styles.values())
+        }
+        # Add more detailed information if needed
+        logger.info(f"Generated report: {json.dumps(report, indent=4)}")
+        return report
