@@ -2,7 +2,7 @@ from sys import argv
 from asyncio import Lock, gather, run
 from utils.logger import get_logger
 from typing import List, Union, Optional
-from aiohttp import ClientSession
+from aiohttp import ClientSession, ClientTimeout
 from re import findall
 
 # Set up logging (use get_logger instead of basicConfig)
@@ -50,7 +50,7 @@ class ExternalFetcher:
 
     async def fetch_and_process_scripts(self) -> None:
         try:
-            async with ClientSession() as session:
+            async with ClientSession(timeout=ClientTimeout(total=self.timeout)) as session:
                 tasks = [self.fetch_script(session, url) for url in self.urls]
                 scripts = await gather(*tasks)
 
@@ -63,19 +63,20 @@ class ExternalFetcher:
         except Exception as e:
             logger.error(f"Error in fetch_and_process_scripts: {e}")
 
-if __name__ == "__main__":
-    urls: List[str] = argv[1:] if len(argv) > 1 else [
-        "https://example.com/script1.js",
-        "https://example.com/script2.js"
-    ]
-    proxy: Optional[str] = None
-    timeout: int = 10
-    fetcher = ExternalFetcher(urls, proxy=proxy, timeout=timeout)
+def main() -> None:
+    try:
+        if len(argv) <= 1:
+            print("Please provide at least one URL as an argument.")
+            exit(1)
 
-    async def main() -> None:
-        try:
-            await fetcher.fetch_and_process_scripts()
-        except Exception as e:
-            logger.error(f"Error in main function: {e}")
-    
-    run(main())
+        urls: List[str] = argv[1:]
+        proxy: Optional[str] = None
+        timeout: int = 10
+        fetcher = ExternalFetcher(urls, proxy=proxy, timeout=timeout)
+
+        run(fetcher.fetch_and_process_scripts())
+    except Exception as e:
+        logger.error(f"Error in main function: {e}")
+
+if __name__ == "__main__":
+    main()
