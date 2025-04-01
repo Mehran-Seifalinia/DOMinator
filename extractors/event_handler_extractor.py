@@ -1,5 +1,5 @@
-from asyncio import run, gather
-from aiohttp import ClientSession, TCPConnector
+import asyncio
+from aiohttp import ClientSession, TCPConnector, ClientTimeout
 from extractors.html_parser import ScriptExtractor
 from utils.logger import get_logger
 
@@ -20,7 +20,6 @@ class EventHandlerExtractor:
     def extract_event_handlers(self) -> dict:
         try:
             event_handlers = self.extractor.extract_event_handlers()
-            
             if not event_handlers:
                 logger.info("No event handlers found.")
                 return {"error": "No event handlers found"}
@@ -36,7 +35,9 @@ async def fetch_html(session: ClientSession, url: str, timeout: int, proxy: str 
         connector = TCPConnector(ssl=False, limit_per_host=10)
         if proxy:
             connector = TCPConnector(ssl=False, limit_per_host=10, proxy=proxy)
-        async with session.get(url, timeout=timeout, headers=headers, connector=connector) as response:
+
+        timeout_settings = ClientTimeout(total=timeout)  # Set timeout
+        async with session.get(url, timeout=timeout_settings, headers=headers, connector=connector) as response:
             response.raise_for_status()
             html = await response.text()
             if not html.strip():
@@ -48,26 +49,35 @@ async def fetch_html(session: ClientSession, url: str, timeout: int, proxy: str 
         logger.error(f"Failed to fetch HTML for {url}: {e}")
         return {"error": "Failed to fetch HTML"}
 
+def is_valid_url(url: str) -> bool:
+    # A simple validation check for URLs (can be extended)
+    return url.startswith("http://") or url.startswith("https://")
+
 async def extract(session: ClientSession, url: str, timeout: int, proxy: str = None, user_agent: str = None) -> dict:
+    if not is_valid_url(url):
+        logger.error(f"Invalid URL: {url}")
+        return {"error": f"Invalid URL: {url}"}
+    
     try:
         html = await fetch_html(session, url, timeout, proxy, user_agent)
-        if isinstance(html, dict):  # Handle error case before creating extractor
-            return html
-        
+        if isinstance(html, dict) and html.get("error"):
+            return html  # Return error if occurred during HTML fetching
+
         extractor = EventHandlerExtractor(html, proxy, user_agent)
         return extractor.extract_event_handlers()
     except Exception as e:
-        logger.error(f"Error during extraction process: {e}")
+        logger.error(f"Error during extraction process for {url}: {e}")
         return {"error": "Extraction failed"}
 
 async def run_extraction(urls: list, timeout: int, proxy: str = None, user_agent: str = None):
     async with ClientSession() as session:
         tasks = [extract(session, url, timeout, proxy, user_agent) for url in urls]
-        results = await gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
         return results
 
 def main(urls: list, timeout: int = 10, proxy: str = None, user_agent: str = None):
-    return run(run_extraction(urls, timeout, proxy, user_agent))
+    loop = asyncio.get_event_loop()  # Use the event loop directly
+    return loop.run_until_complete(run_extraction(urls, timeout, proxy, user_agent))
 
 if __name__ == "__main__":
     urls = ["http://example.com", "http://example2.com"]
