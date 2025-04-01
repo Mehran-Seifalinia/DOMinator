@@ -15,7 +15,7 @@ class DynamicAnalyzer:
         self.external_urls = external_urls
         self.priority_manager = PriorityManager()
 
-    def analyze_event_handlers(self) -> Dict[str, List[str]]:
+    async def analyze_event_handlers(self) -> Dict[str, List[str]]:
         """Extract and analyze event handlers from HTML"""
         try:
             extractor = EventHandlerExtractor(self.html_content)
