@@ -4,9 +4,23 @@ from utils.logger import get_logger
 from typing import List, Union, Optional
 from aiohttp import ClientSession, ClientTimeout
 from re import findall
+from scanners.static_analyzer import StaticAnalyzer
 
 # Set up logging (use get_logger instead of basicConfig)
 logger = get_logger()
+
+class ScriptAnalysisResult:
+    def __init__(self, url: str, event_listeners: List[str], risky_functions: List[str]):
+        self.url = url
+        self.event_listeners = event_listeners
+        self.risky_functions = risky_functions
+
+    def to_dict(self):
+        return {
+            "url": self.url,
+            "event_listeners": self.event_listeners,
+            "risky_functions": self.risky_functions
+        }
 
 class ExternalFetcher:
     def __init__(self, urls: List[str], proxy: Optional[str] = None, timeout: int = 10):
@@ -33,7 +47,7 @@ class ExternalFetcher:
             logger.error(f"Error fetching {url}: {e}")
         return None  # Explicitly return None if fetch fails
 
-    async def process_script(self, content: str, url: str) -> Optional[dict]:
+    async def process_script(self, content: str, url: str) -> Optional[ScriptAnalysisResult]:
         try:
             logger.info(f"Processing script from {url}")
 
@@ -44,18 +58,27 @@ class ExternalFetcher:
             event_listeners = findall(r'\.addEventListener\(["\'](\w+)["\']', content)
             risky_functions = findall(r'\b(eval|setTimeout|setInterval|document\.write)\b', content)
 
-            script_analysis = {
-                "url": url,
-                "event_listeners": list(set(event_listeners)),
-                "risky_functions": list(set(risky_functions))
-            }
+            # Check if risky functions are tied to user input
+            user_input_related = findall(r'\.getElementById\(["\']([^"\']+)["\']\)', content)  # Add more as needed
+            risky_functions += user_input_related  # Add user input related functions to the list
 
-            logger.info(f"Analysis result: {script_analysis}")
+            script_analysis = ScriptAnalysisResult(
+                url=url,
+                event_listeners=list(set(event_listeners)),
+                risky_functions=list(set(risky_functions))
+            )
+
+            logger.info(f"Analysis result: {script_analysis.to_dict()}")
             return script_analysis
 
         except Exception as e:
             logger.error(f"Error processing script from {url}: {e}")
             return None
+
+    async def send_to_static_analyzer(self, script_analysis: ScriptAnalysisResult) -> None:
+        # Assuming StaticAnalyzer exists and works as expected
+        static_analyzer = StaticAnalyzer(script_analysis.to_dict())
+        static_analyzer.analyze()
 
     async def fetch_and_process_scripts(self) -> None:
         try:
@@ -65,7 +88,9 @@ class ExternalFetcher:
 
                 for url, script_content in zip(self.urls, scripts):
                     if script_content:
-                        await self.process_script(script_content, url)
+                        script_analysis = await self.process_script(script_content, url)
+                        if script_analysis:
+                            await self.send_to_static_analyzer(script_analysis)
                     else:
                         logger.error(f"No script content fetched for {url}")
         
