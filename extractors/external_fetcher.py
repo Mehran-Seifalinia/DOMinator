@@ -56,13 +56,19 @@ class ExternalFetcher:
                 logger.warning(f"Skipping minified script: {url}")
                 return None
 
+            # Detect event listeners
             event_listeners = findall(r'\.addEventListener\(["\'](\w+)["\']', content)
-            risky_functions = findall(r'\b(eval|setTimeout|setInterval|document\.write)\b', content)
-
+            # Detect risky functions
+            risky_functions = findall(r'\b(eval|setTimeout|setInterval|document\.write|Function|document\.createElement|innerHTML|setInterval|setTimeout)\b', content)
             # Check if risky functions are tied to user input
             user_input_related = findall(r'\.getElementById\(["\']([^"\']+)["\']\)', content)  # Add more as needed
             risky_functions += user_input_related  # Add user input related functions to the list
 
+            # Additional events that are considered risky
+            risky_events = findall(r'\bon\w+\b', content)
+            event_listeners += risky_events
+
+            # Filter duplicates by converting to set and back to list
             script_analysis = ScriptAnalysisResult(
                 url=url,
                 event_listeners=list(set(event_listeners)),
