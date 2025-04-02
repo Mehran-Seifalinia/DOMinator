@@ -35,6 +35,25 @@ class DynamicAnalyzer:
         except Exception as e:
             logger.error(f"Error fetching or processing external scripts: {e}")
 
+    async def analyze_dom_xss_risk(self, page) -> Dict[str, List[str]]:
+        """Analyze DOM XSS vulnerabilities by checking dangerous attributes and script inclusions"""
+        xss_risks = []
+        try:
+            elements = await page.query_selector_all('*')
+            for element in elements:
+                outer_html = await element.inner_html()
+                if "<script>" in outer_html or "javascript:" in outer_html:
+                    xss_risks.append(outer_html)
+                # Check attributes like src, href, onerror, onload for potential XSS
+                attributes = await element.get_property("attributes")
+                for attr in attributes:
+                    if any(keyword in attr['value'] for keyword in ['javascript:', 'onerror', 'onload']):
+                        xss_risks.append(f"Element with {attr['name']}={attr['value']}")
+            return xss_risks
+        except Exception as e:
+            logger.error(f"Error while analyzing DOM XSS risks: {e}")
+            return []
+
     async def execute_in_browser(self) -> Dict[str, List[str]]:
         """Execute HTML in a real browser to detect dynamic vulnerabilities"""
         results = {}
@@ -46,19 +65,11 @@ class DynamicAnalyzer:
                     async with context.new_page() as page:
                         logger.info("Executing HTML in a real browser environment...")
                         await page.set_content(self.html_content)
-                        dom_changes = await page.evaluate(""" 
-                            () => {
-                                let xss_detected = [];
-                                document.querySelectorAll('*').forEach(el => {
-                                    if (el.innerHTML.includes('<script>') || el.innerHTML.includes('javascript:')) {
-                                        xss_detected.push(el.outerHTML);
-                                    }
-                                });
-                                return xss_detected;
-                            }
-                        """)
-                        results["dom_changes"] = dom_changes
-                        self.priority_manager.process_results({"dom_results": dom_changes})
+                        
+                        # First analyze DOM XSS risks
+                        dom_xss_results = await self.analyze_dom_xss_risk(page)
+                        results["dom_xss_risks"] = dom_xss_results
+                        self.priority_manager.process_results({"dom_results": dom_xss_results})
         except Exception as e:
             logger.error(f"Error during dynamic analysis in browser: {e}")
 
