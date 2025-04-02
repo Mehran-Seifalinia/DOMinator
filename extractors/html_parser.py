@@ -157,17 +157,17 @@ class ScriptExtractor:
                 executor.submit(self.extract_event_handlers): "event_handlers",
                 executor.submit(self.extract_inline_styles): "inline_styles"
             }
-
+    
             result = {}
             # Collect results as each task completes
             for future in as_completed(futures):
-                key = list(futures.keys())[list(futures.values()).index(futures[future])]
+                task_name = futures[future]
                 try:
-                    result[key] = future.result()
+                    result[task_name] = future.result()
                 except Exception as e:
-                    logger.error(f"Error extracting {key}: {e}\n{format_exc()}")
-                    result[key] = [] if key != "event_handlers" else {}
-
+                    logger.error(f"Error extracting {task_name}: {e}\n{format_exc()}")
+                    result[task_name] = [] if task_name != "event_handlers" else {}
+    
             return ScriptData(
                 inline_scripts=result.get("inline_scripts", []),
                 external_scripts=result.get("external_scripts", []),
@@ -183,12 +183,12 @@ class ScriptExtractor:
             "event_handlers": sum(len(v) for v in script_data.event_handlers.values()),
             "inline_styles": sum(len(v) for v in script_data.inline_styles.values())
         }
-
-        # Add more detailed information
+    
+        # Add more detailed information for inline scripts
         detailed_report = []
         for idx, script in enumerate(script_data.inline_scripts, start=1):
-            detailed_report.append(f"Line {idx}: {script[:50]}...")  # Truncated for simplicity
-
+            detailed_report.append(f"Script {idx}: {script[:50]}...")  # Truncated for simplicity
+    
         report["detailed_inline_scripts"] = detailed_report
         logger.info(f"Generated report: {json.dumps(report, indent=4)}")
         return report
