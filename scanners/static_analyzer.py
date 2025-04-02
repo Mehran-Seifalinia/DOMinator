@@ -64,21 +64,20 @@ class StaticAnalyzer:
     def detect_dangerous_patterns(self) -> List[Occurrence]:
         occurrences = []
         
-
-        for line, script in self.extractor.inline_scripts:
+        for line_num, script in enumerate(self.extractor.inline_scripts, start=1):
             for pattern in dangerous_patterns:
                 for match in pattern.finditer(script):
                     risk_level = assess_risk(match.group())
                     priority = calculate_priority(risk_level)
                     occurrences.append({
-                        "line": line,
+                        "line": line_num,
                         "column": match.start(),
                         "pattern": match.group(),
                         "context": script[max(0, match.start()-20):match.end()+20],
                         "risk_level": risk_level,
                         "priority": priority
                     })
-
+    
         for tag, attr, value, line in self.extractor.dangerous_html_elements:
             for pattern in dangerous_html_patterns:
                 if pattern.search(attr) or pattern.search(value):
@@ -92,8 +91,9 @@ class StaticAnalyzer:
                         "risk_level": risk_level,
                         "priority": priority
                     })
-
+    
         return occurrences
+
 
     def analyze(self) -> ScriptAnalysis:
         try:
