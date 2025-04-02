@@ -75,7 +75,10 @@ async def fetch_html(
     user_agent: Optional[str] = None
 ) -> ExtractionResult:
     try:
-        headers = {'User-Agent': user_agent} if user_agent else {}
+        headers = {}
+        if user_agent:
+            headers['User-Agent'] = user_agent
+        
         timeout_settings = ClientTimeout(total=timeout)
         
         async with session.get(
@@ -163,24 +166,23 @@ async def run_extraction(
     )
     
     async with ClientSession(connector=connector) as session:
-        tasks = [
-            extract(session, url, timeout, max_size, proxy, user_agent) 
-            for url in urls
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        tasks = []
+        for url in urls:
+            tasks.append(extract(session, url, timeout, max_size, proxy, user_agent))
         
-        processed_results = []
-        for result in results:
-            if isinstance(result, Exception):
-                processed_results.append(ExtractionResult(
+        results = []
+        for task in tasks:
+            try:
+                result = await task
+                results.append(result)
+            except Exception as e:
+                results.append(ExtractionResult(
                     status="error",
-                    error=str(result),
-                    message="Unexpected error occurred"
+                    error=str(e),
+                    message="Unexpected error occurred during extraction"
                 ))
-            else:
-                processed_results.append(result)
-                
-        return processed_results
+        
+        return results
 
 async def async_main(
     urls: List[str], 
