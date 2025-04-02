@@ -23,7 +23,8 @@ DOM_XSS_PATTERNS = [
     r"alert\(", r"console\.log\(", r"confirm\(", r"prompt\(", 
     r"insertAdjacentHTML\(", r"insertBefore\(", r"outerHTML", r"createRange", r"createContextualFragment",
     r"window\.open\(", r"location\.href", r"document\.location\.href", r"document\.domain", 
-    r"document\.getElementById\(", r"document\.getElementsByClassName\(", r"document\.getElementsByName\("
+    r"document\.getElementById\(", r"document\.getElementsByClassName\(", r"document\.getElementsByName\(",
+    r"javascript:", r"srcdoc"  # New patterns
 ]
 
 def validate_html(html: str) -> bool:
@@ -73,6 +74,9 @@ class ScriptExtractor:
         try:
             if script_type == 'inline':
                 scripts = [script.text.strip() for script in self.soup.find_all("script") if script.text.strip()]
+                # Checking script.innerHTML as well
+                inline_html = [script.get("innerHTML") for script in self.soup.find_all("script") if script.get("innerHTML")]
+                scripts.extend(inline_html)
             else:
                 scripts = [script.get(attr_name) for script in self.soup.find_all("script", src=True) if script.get(attr_name)]
 
@@ -127,7 +131,6 @@ class ScriptExtractor:
             logger.error(f"Unexpected error extracting event handlers: {e}\n{format_exc()}")
             return {}
 
-
     def extract_inline_styles(self) -> Dict[str, List[str]]:
         """Extracts inline styles from HTML elements and <style> tags."""
         try:
@@ -180,6 +183,12 @@ class ScriptExtractor:
             "event_handlers": sum(len(v) for v in script_data.event_handlers.values()),
             "inline_styles": sum(len(v) for v in script_data.inline_styles.values())
         }
-        # Add more detailed information if needed
+
+        # Add more detailed information
+        detailed_report = []
+        for idx, script in enumerate(script_data.inline_scripts, start=1):
+            detailed_report.append(f"Line {idx}: {script[:50]}...")  # Truncated for simplicity
+
+        report["detailed_inline_scripts"] = detailed_report
         logger.info(f"Generated report: {json.dumps(report, indent=4)}")
         return report
