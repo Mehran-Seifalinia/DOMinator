@@ -1,5 +1,5 @@
 from sys import argv
-from asyncio import Lock, gather, run
+from asyncio import Lock, gather, run, Semaphore
 from utils.logger import get_logger
 from typing import List, Union, Optional
 from aiohttp import ClientSession, ClientTimeout
@@ -23,10 +23,11 @@ class ScriptAnalysisResult:
         }
 
 class ExternalFetcher:
-    def __init__(self, urls: List[str], proxy: Optional[str] = None, timeout: int = 10):
-        self.urls: List[str] = urls
+    def __init__(self, urls: List[str], proxy: Optional[str] = None, timeout: int = 10, max_concurrent_requests: int = 5):
+        self.urls: List[str] = list(set(urls))  # Remove duplicates
         self.proxy: Optional[str] = proxy
         self.timeout: int = timeout
+        self.semaphore = Semaphore(max_concurrent_requests)  # Limit concurrent requests
 
     async def fetch_script(self, session, url: str) -> Optional[str]:
         try:
@@ -106,7 +107,8 @@ def main() -> None:
         urls: List[str] = argv[1:]
         proxy: Optional[str] = None
         timeout: int = 10
-        fetcher = ExternalFetcher(urls, proxy=proxy, timeout=timeout)
+        max_concurrent_requests: int = 5  # Adjust the concurrency limit as needed
+        fetcher = ExternalFetcher(urls, proxy=proxy, timeout=timeout, max_concurrent_requests=max_concurrent_requests)
 
         run(fetcher.fetch_and_process_scripts())
     except Exception as e:
