@@ -56,18 +56,16 @@ class ScriptData:
         )
 
 class ScriptExtractor:
-    """Extracts inline scripts, external scripts, event handlers, and inline styles from HTML content."""
-
-    def __init__(self, html: str):
+    def __init__(self, html: str, proxy: Optional[str] = None, user_agent: Optional[str] = None):
         if not html or not isinstance(html, str) or not html.strip():
             raise TypeError("HTML content must be a non-empty string.")
         
-        # Validate HTML content before processing
         if not validate_html(html):
             raise ValueError("Invalid HTML: The provided HTML is not valid.")
         
-        # Now we can safely parse the HTML with BeautifulSoup
         self.soup = BeautifulSoup(html, "html.parser")
+        self.proxy = proxy
+        self.user_agent = user_agent
 
     def extract_scripts(self, script_type: str, attr_name: str = "src") -> List[str]:
         """General method to extract scripts based on type and attribute."""
