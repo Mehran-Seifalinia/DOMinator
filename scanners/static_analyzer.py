@@ -3,7 +3,7 @@ from utils.logger import get_logger
 from requests import get, Response
 from typing import List, Dict, Optional, TypedDict
 from dataclasses import dataclass
-from priority_manager import calculate_priority
+from scanners.priority_manager import calculate_priority
 from html_parser import ScriptExtractor
 
 logger = get_logger()
