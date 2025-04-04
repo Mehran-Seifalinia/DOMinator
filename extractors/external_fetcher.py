@@ -82,10 +82,10 @@ class ExternalFetcher:
             logger.error(f"Error processing script from {url}: {e}")
             return None
 
-    async def send_to_static_analyzer(self, script_analysis: ScriptAnalysisResult) -> None:
-        # Assuming StaticAnalyzer exists and works as expected
-        static_analyzer = StaticAnalyzer(script_analysis.to_dict())
-        static_analyzer.analyze()
+    async def send_to_static_analyzer(self, script_content: str) -> None:
+        static_analyzer = StaticAnalyzer(script_content)
+        result = static_analyzer.analyze()
+        logger.info(f"Static analysis result: {result}")
 
     async def fetch_and_process_scripts(self) -> None:
         try:
