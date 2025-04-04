@@ -52,18 +52,22 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
         start_time = time()
         logger.info(f"Extracting data from {url}...")
 
-        extractor = EventHandlerExtractor("", proxy=proxy, user_agent=user_agent)
-        event_handlers_result = await extractor.extract(session, url, timeout)
+        # Fetch HTML content from the URL
+        html_content = await fetch_html(url, session, timeout)
+        if not html_content:
+            logger.error(f"Failed to fetch HTML from {url}")
+            return
+
+        # Initialize the DynamicAnalyzer with the HTML content
+        analyzer = DynamicAnalyzer(html_content, external_urls=[])
+        dynamic_results = await analyzer.run_analysis()
 
         logger.info(f"Running static analysis for {url}...")
         static_results = StaticAnalyzer.static_analyze(url, level)
 
-        logger.info(f"Running dynamic analysis for {url}...")
-        try:
-            dynamic_results = dynamic_analyze(url, headless=headless, cookie=cookie)
-        except Exception as e:
-            logger.warning(f"Dynamic analysis failed for {url}: {e}")
-            dynamic_results = {"error": str(e)}
+        # Extract event handlers
+        extractor = EventHandlerExtractor(html_content)
+        event_handlers_result = await extractor.extract(session, url, timeout)
 
         logger.info(f"Prioritizing vulnerabilities for {url}...")
         priority_results = rank(static_results, dynamic_results)
@@ -90,6 +94,7 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
             "status": "Error",
             "error_message": str(e)
         })
+
 
 # Write results to CSV
 def write_results_to_csv(results, output_file):
