@@ -58,12 +58,12 @@ class ScriptExtractor:
             for script in scripts:
                 for pattern in DOM_XSS_PATTERNS:
                     if re.search(pattern, script):
-                        filtered_scripts.append(script)
+                        filtered_scripts.add(script)
                         break
 
             if not filtered_scripts:
-                logger.warning("No potential DOM XSS inline scripts found.")
-            return filtered_scripts
+                logger.debug("No potential DOM XSS inline scripts found.")
+            return list(filtered_scripts)
         except Exception as e:
             logger.error(f"Unexpected error extracting inline scripts: {e}\n{format_exc()}")
             return []
@@ -71,9 +71,10 @@ class ScriptExtractor:
     def get_scripts(self) -> List[str]:
         """Extract inline scripts concurrently."""
         with ThreadPoolExecutor(max_workers=4) as executor:
-            future = executor.submit(self.extract_inline_scripts)
+            futures = [executor.submit(self.extract_inline_scripts) for _ in range(4)]
             try:
-                return future.result()
+                results = [future.result() for future in futures]
+                return [script for sublist in results for script in sublist]
             except Exception as e:
                 logger.error(f"Error extracting inline scripts: {e}\n{format_exc()}")
                 return []
