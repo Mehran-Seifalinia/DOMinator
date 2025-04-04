@@ -96,9 +96,22 @@ class ScriptExtractor:
             logger.warning("No potential DOM XSS inline scripts found.")
         return filtered_scripts
 
+    async def fetch_external_script(self, url: str) -> str:
+        headers = {}
+        if self.user_agent:
+            headers['User-Agent'] = self.user_agent
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, proxy=self.proxy) as response:
+                return await response.text()
+
     def extract_external_scripts(self) -> List[str]:
-        """Extract external scripts."""
-        return self.extract_scripts('external')
+        scripts = [script.get('src') for script in self.soup.find_all('script', src=True)]
+        # If you need to fetch the actual content of the external scripts
+        if scripts:
+            # Example of fetching external scripts (async) here:
+            return [await self.fetch_external_script(url) for url in scripts]
+        return scripts
 
     def extract_event_handlers(self) -> Dict[str, List[Dict[str, str]]]:
         """Extracts inline event handlers (e.g., onclick, onmouseover) from HTML elements."""
