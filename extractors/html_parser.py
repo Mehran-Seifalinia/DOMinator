@@ -73,10 +73,8 @@ class ScriptExtractor:
         """General method to extract scripts based on type and attribute."""
         try:
             if script_type == 'inline':
-                scripts = [script.text.strip() for script in self.soup.find_all("script") if script.text.strip()]
-                # Checking script.innerHTML as well
-                inline_html = [script.get("innerHTML") for script in self.soup.find_all("script") if script.get("innerHTML")]
-                scripts.extend(inline_html)
+                scripts = [script.string.strip() if script.string else script.text.strip() 
+                           for script in self.soup.find_all("script") if script.string or script.text]
             else:
                 scripts = [script.get(attr_name) for script in self.soup.find_all("script", src=True) if script.get(attr_name)]
 
