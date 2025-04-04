@@ -54,7 +54,7 @@ class ScriptExtractor:
                 for script in self.soup.find_all("script")
                 if script.string or script.text
             ]
-            filtered_scripts = []
+            ffiltered_scripts = set()
             for script in scripts:
                 for pattern in DOM_XSS_PATTERNS:
                     if re.search(pattern, script):
