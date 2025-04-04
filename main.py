@@ -2,8 +2,7 @@ from asyncio import Queue, gather, run
 from aiohttp import ClientSession, ClientTimeout, ClientError
 from json import dump, dumps
 from time import time
-from extractors.html_parser import ScriptExtractor
-from extractors.event_handler_extractor import extract
+from extractors.event_handler_extractor import EventHandlerExtractor
 from scanners.static_analyzer import analyze as static_analyze
 from scanners.dynamic_analyzer import analyze as dynamic_analyze
 from scanners.priority_manager import rank
@@ -43,23 +42,9 @@ def validate_timeout(timeout):
         raise ValueError(f"Invalid timeout value: {timeout}. Timeout must be a positive integer.")
     return timeout
 
-# Fetch URL content asynchronously
-async def get_url_async(session, url, force, timeout):
-    try:
-        async with session.get(url, timeout=ClientTimeout(total=timeout)) as response:
-            response.raise_for_status()
-            return await response.text()
-    except ClientError as e:
-        if force:
-            logger.warning(f"Unable to reach {url}, but continuing due to --force.")
-            return {"error": "timeout", "url": url, "message": str(e)}
-        else:
-            raise e
-
 # Scan URL
 async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, blacklist, no_external, headless, user_agent, cookie, max_depth, auto_update, report_format, session):
     try:
-        # Check blacklist
         if blacklist and any(bl_url in url for bl_url in blacklist.split(',')):
             logger.info(f"Skipping blacklisted URL: {url}")
             return
@@ -67,7 +52,8 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
         start_time = time()
         logger.info(f"Extracting data from {url}...")
 
-        event_handlers = await extract(session, url, timeout, proxy=proxy, user_agent=user_agent, cookie=cookie)
+        extractor = EventHandlerExtractor("", proxy=proxy, user_agent=user_agent)
+        event_handlers_result = await extractor.extract(session, url, timeout)
 
         logger.info(f"Running static analysis for {url}...")
         static_results = static_analyze(url, level)
@@ -89,29 +75,40 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
             "url": url,
             "status": "Completed",
             "elapsed_time": elapsed_time,
+            "event_handlers": event_handlers_result.data if event_handlers_result.success else {"error": event_handlers_result.message},
             "static_results": static_results,
             "dynamic_results": dynamic_results,
             "priority_results": priority_results
         }
+
         await results_queue.put(result)
 
     except Exception as e:
         logger.error(f"Error while scanning {url}: {e}")
-        await results_queue.put({"url": url, "status": "Error", "error_message": str(e)})
+        await results_queue.put({
+            "url": url,
+            "status": "Error",
+            "error_message": str(e)
+        })
 
 # Write results to CSV
 def write_results_to_csv(results, output_file):
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
-        writer = DictWriter(f, fieldnames=['url', 'status', 'elapsed_time', 'static_results', 'dynamic_results', 'priority_results'])
+        writer = DictWriter(f, fieldnames=[
+            'url', 'status', 'elapsed_time',
+            'event_handlers', 'static_results',
+            'dynamic_results', 'priority_results'
+        ])
         writer.writeheader()
         for result in results:
             writer.writerow({
                 "url": result["url"],
                 "status": result["status"],
-                "elapsed_time": result["elapsed_time"],
-                "static_results": dumps(result["static_results"]),
-                "dynamic_results": dumps(result["dynamic_results"]),
-                "priority_results": dumps(result["priority_results"])
+                "elapsed_time": result.get("elapsed_time", 0),
+                "event_handlers": dumps(result.get("event_handlers", {})),
+                "static_results": dumps(result.get("static_results", {})),
+                "dynamic_results": dumps(result.get("dynamic_results", {})),
+                "priority_results": dumps(result.get("priority_results", {}))
             })
 
 # Main function
@@ -141,7 +138,17 @@ async def main():
     results_queue = Queue()
 
     async with ClientSession() as session:
-        tasks = [scan_url_async(url, args.level, results_queue, args.timeout, args.proxy, args.verbose, args.blacklist, args.no_external, args.headless, args.user_agent, args.cookie, args.max_depth, args.auto_update, args.report_format, session) for url in args.url]
+        tasks = [
+            scan_url_async(
+                url, args.level, results_queue, args.timeout,
+                args.proxy, args.verbose, args.blacklist,
+                args.no_external, args.headless,
+                args.user_agent, args.cookie,
+                args.max_depth, args.auto_update,
+                args.report_format, session
+            )
+            for url in args.url
+        ]
         await gather(*tasks)
 
     results = []
@@ -151,7 +158,7 @@ async def main():
     if args.report_format == 'csv' and args.output:
         write_results_to_csv(results, args.output)
     elif args.report_format == 'json' and args.output:
-        with open(args.output, 'w') as f:
+        with open(args.output, 'w', encoding='utf-8') as f:
             dump(results, f, indent=4)
 
 if __name__ == "__main__":
