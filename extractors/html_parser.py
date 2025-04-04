@@ -1,14 +1,9 @@
 import re
-from os import getenv
-from typing import Dict, List, Optional
-from collections import defaultdict
-from dataclasses import dataclass, field
+from typing import List
 from bs4 import BeautifulSoup
 from utils.logger import get_logger
 from traceback import format_exc
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from html5lib import parse
-import json
 
 # Logger setup
 logger = get_logger()
@@ -39,23 +34,8 @@ def validate_html(html: str) -> bool:
         logger.error(f"Unexpected error during HTML validation: {e}\n{format_exc()}")
         return False
 
-@dataclass
-class ScriptData:
-    inline_scripts: List[str] = field(default_factory=list)
-    external_scripts: List[str] = field(default_factory=list)
-    event_handlers: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
-    inline_styles: Dict[str, List[str]] = field(default_factory=dict)
-
-    def __str__(self) -> str:
-        return (
-            f"Inline Scripts: {len(self.inline_scripts)}\n"
-            f"External Scripts: {len(self.external_scripts)}\n"
-            f"Event Handlers: {sum(len(v) for v in self.event_handlers.values())} handlers\n"
-            f"Inline Styles: {sum(len(v) for v in self.inline_styles.values())} elements"
-        )
-
 class ScriptExtractor:
-    def __init__(self, html: str, proxy: Optional[str] = None, user_agent: Optional[str] = None):
+    def __init__(self, html: str):
         if not html or not isinstance(html, str) or not html.strip():
             raise TypeError("HTML content must be a non-empty string.")
 
@@ -63,126 +43,47 @@ class ScriptExtractor:
             raise ValueError("Invalid HTML: The provided HTML is not valid.")
 
         self.soup = BeautifulSoup(html, "html.parser")
-        self.proxy = proxy
-        self.user_agent = user_agent
-
-    def extract_scripts(self, script_type: str, attr_name: str = "src") -> List[str]:
-        """Extract scripts based on type: 'inline' or 'external'."""
-        try:
-            if script_type == 'inline':
-                scripts = [
-                    script.string.strip() if script.string else script.text.strip()
-                    for script in self.soup.find_all("script")
-                    if script.string or script.text
-                ]
-            else:
-                scripts = [
-                    script.get(attr_name)
-                    for script in self.soup.find_all("script", src=True)
-                    if script.get(attr_name)
-                ]
-
-            if not scripts:
-                logger.warning(f"No {script_type} scripts found.")
-            return scripts
-        except Exception as e:
-            logger.error(f"Unexpected error extracting {script_type} scripts: {e}\n{format_exc()}")
-            return []
 
     def extract_inline_scripts(self) -> List[str]:
         """Extract inline scripts that match DOM XSS patterns."""
-        scripts = self.extract_scripts('inline')
-        filtered_scripts = []
-        for script in scripts:
-            for pattern in DOM_XSS_PATTERNS:
-                if re.search(pattern, script):
-                    filtered_scripts.append(script)
-                    break
-        if not filtered_scripts:
-            logger.warning("No potential DOM XSS inline scripts found.")
-        return filtered_scripts
-
-    def extract_event_handlers(self) -> Dict[str, List[Dict[str, str]]]:
-        """Extract and filter DOM XSS-relevant inline event handlers."""
         try:
-            event_handlers = defaultdict(list)
-            for tag in self.soup.find_all(True):
-                handlers = {
-                    attr: value.strip()
-                    for attr, value in tag.attrs.items()
-                    if attr.lower().startswith("on") and value.strip()
-                }
-                if handlers:
-                    event_handlers[tag.name].append(handlers)
+            scripts = [
+                script.string.strip() if script.string else script.text.strip()
+                for script in self.soup.find_all("script")
+                if script.string or script.text
+            ]
+            filtered_scripts = []
+            for script in scripts:
+                for pattern in DOM_XSS_PATTERNS:
+                    if re.search(pattern, script):
+                        filtered_scripts.append(script)
+                        break
 
-            dom_xss_event_handlers = defaultdict(list)
-            for tag, handlers in event_handlers.items():
-                for handler in handlers:
-                    for event_attr, event_value in handler.items():
-                        if any(re.search(pattern, event_value) for pattern in DOM_XSS_PATTERNS):
-                            dom_xss_event_handlers[tag].append(handler)
-
-            if not dom_xss_event_handlers:
-                logger.warning("No event handlers found that may lead to DOM XSS.")
-
-            return dom_xss_event_handlers
+            if not filtered_scripts:
+                logger.warning("No potential DOM XSS inline scripts found.")
+            return filtered_scripts
         except Exception as e:
-            logger.error(f"Unexpected error extracting event handlers: {e}\n{format_exc()}")
-            return {}
+            logger.error(f"Unexpected error extracting inline scripts: {e}\n{format_exc()}")
+            return []
 
-    def extract_inline_styles(self) -> Dict[str, List[str]]:
-        """Extract inline styles from elements and <style> tags."""
-        try:
-            styles = defaultdict(list)
-            for tag in self.soup.find_all(style=True):
-                styles[tag.name].append(tag["style"].strip())
+    def get_scripts(self) -> List[str]:
+        """Extract inline scripts concurrently."""
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(self.extract_inline_scripts)
+            try:
+                return future.result()
+            except Exception as e:
+                logger.error(f"Error extracting inline scripts: {e}\n{format_exc()}")
+                return []
 
-            for style_tag in self.soup.find_all("style"):
-                if style_tag.string:
-                    styles["style"].append(style_tag.string.strip())
-
-            return dict(styles)
-        except Exception as e:
-            logger.error(f"Error extracting inline styles: {e}\n{format_exc()}")
-            return {}
-
-    def get_scripts(self) -> ScriptData:
-        """Extract all scripts, handlers, and styles concurrently."""
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = {
-                executor.submit(self.extract_inline_scripts): "inline_scripts",
-                executor.submit(self.extract_event_handlers): "event_handlers",
-                executor.submit(self.extract_inline_styles): "inline_styles",
-                # external_scripts will be set externally later via external_fetcher
-            }
-
-            result = {}
-            for future in as_completed(futures):
-                task_name = futures[future]
-                try:
-                    result[task_name] = future.result()
-                except Exception as e:
-                    logger.error(f"Error extracting {task_name}: {e}\n{format_exc()}")
-                    result[task_name] = [] if task_name != "event_handlers" else {}
-
-            return ScriptData(
-                inline_scripts=result.get("inline_scripts", []),
-                external_scripts=[],  # to be populated externally
-                event_handlers=result.get("event_handlers", {}),
-                inline_styles=result.get("inline_styles", {})
-            )
-
-    def generate_report(self, script_data: ScriptData) -> Dict[str, str]:
-        """Generate a summary report based on ScriptData."""
+    def generate_report(self, inline_scripts: List[str]) -> Dict[str, str]:
+        """Generate a summary report based on inline scripts."""
         report = {
-            "inline_scripts": len(script_data.inline_scripts),
-            "external_scripts": len(script_data.external_scripts),
-            "event_handlers": sum(len(v) for v in script_data.event_handlers.values()),
-            "inline_styles": sum(len(v) for v in script_data.inline_styles.values())
+            "inline_scripts": len(inline_scripts),
         }
 
         detailed_report = []
-        for idx, script in enumerate(script_data.inline_scripts, start=1):
+        for idx, script in enumerate(inline_scripts, start=1):
             detailed_report.append(f"Script {idx}: {script[:50]}...")
 
         report["detailed_inline_scripts"] = detailed_report
