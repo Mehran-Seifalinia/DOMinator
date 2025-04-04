@@ -79,18 +79,23 @@ class DynamicAnalyzer:
     async def run_analysis(self) -> None:
         """Run the full dynamic analysis process"""
         logger.info("Starting dynamic analysis...")
-
+    
         try:
             # Running tasks in parallel
             event_handlers_task = self.analyze_event_handlers()
             external_scripts_task = self.fetch_and_analyze_external_scripts()
             dom_results_task = self.execute_in_browser()
-
+    
+            # Gathering all the results
             event_handlers, _, dom_results = await asyncio.gather(
                 event_handlers_task, external_scripts_task, dom_results_task
             )
-
-            logger.info(f"Dynamic analysis results: {event_handlers}, {dom_results}")
+    
+            logger.info(f"Dynamic analysis results: Event Handlers: {event_handlers}, DOM XSS Risks: {dom_results}")
+            
+            # Process results or return them if needed
+            # Optionally, you can now call self.priority_manager.process_results() to manage results
+    
         except Exception as e:
             logger.error(f"Error during full analysis: {e}")
 
