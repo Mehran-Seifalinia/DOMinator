@@ -3,7 +3,7 @@ from aiohttp import ClientSession, ClientTimeout, ClientError
 from json import dump, dumps
 from time import time
 from extractors.event_handler_extractor import EventHandlerExtractor
-from scanners.static_analyzer import analyze as static_analyze
+from scanners.static_analyzer import StaticAnalyzer
 from scanners.dynamic_analyzer import analyze as dynamic_analyze
 from scanners.priority_manager import rank
 from utils.logger import get_logger
@@ -56,7 +56,7 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
         event_handlers_result = await extractor.extract(session, url, timeout)
 
         logger.info(f"Running static analysis for {url}...")
-        static_results = static_analyze(url, level)
+        static_results = StaticAnalyzer.static_analyze(url, level)
 
         logger.info(f"Running dynamic analysis for {url}...")
         try:
