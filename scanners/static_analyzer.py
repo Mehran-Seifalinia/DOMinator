@@ -3,8 +3,8 @@ from utils.logger import get_logger
 from requests import get, Response
 from typing import List, Dict, Optional, TypedDict
 from dataclasses import dataclass
-from scanners.priority_manager import calculate_priority
-from html_parser import ScriptExtractor
+from scanners.priority_manager import PriorityManager
+from extractors.html_parser import ScriptExtractor
 
 logger = get_logger()
 
@@ -68,7 +68,7 @@ class StaticAnalyzer:
             for pattern in dangerous_patterns:
                 for match in pattern.finditer(script):
                     risk_level = assess_risk(match.group())
-                    priority = calculate_priority(risk_level)
+                    priority = PriorityManager.calculate_optimized_priority(risk_level)
                     occurrences.append({
                         "line": line_num,
                         "column": match.start(),
@@ -82,7 +82,7 @@ class StaticAnalyzer:
             for pattern in dangerous_html_patterns:
                 if pattern.search(attr) or pattern.search(value):
                     risk_level = assess_risk(attr)
-                    priority = calculate_priority(risk_level)
+                    priority = PriorityManager.calculate_optimized_priority(risk_level)
                     occurrences.append({
                         "line": line,
                         "column": 0,
