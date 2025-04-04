@@ -1,9 +1,11 @@
 import re
-from typing import List
+import json
+from typing import List, Dict
 from bs4 import BeautifulSoup
 from utils.logger import get_logger
 from traceback import format_exc
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from html5lib import parse
+from concurrent.futures import ThreadPoolExecutor
 
 # Logger setup
 logger = get_logger()
@@ -68,7 +70,7 @@ class ScriptExtractor:
 
     def get_scripts(self) -> List[str]:
         """Extract inline scripts concurrently."""
-        with ThreadPoolExecutor(max_workers=1) as executor:
+        with ThreadPoolExecutor(max_workers=4) as executor:
             future = executor.submit(self.extract_inline_scripts)
             try:
                 return future.result()
@@ -76,7 +78,7 @@ class ScriptExtractor:
                 logger.error(f"Error extracting inline scripts: {e}\n{format_exc()}")
                 return []
 
-    def generate_report(self, inline_scripts: List[str]) -> Dict[str, str]:
+    def generate_report(self, inline_scripts: List[str]) -> Dict[str, List[str]]:
         """Generate a summary report based on inline scripts."""
         report = {
             "inline_scripts": len(inline_scripts),
