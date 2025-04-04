@@ -6,7 +6,7 @@ from sys import stderr
 # Configuration
 LOG_DIR = "logs"
 LOG_FILE = path.join(LOG_DIR, "scanner.log")
-LOG_FORMAT = "[%(asctime)s] [%(levelname)s] [%(module)s]: %(message)s"
+LOG_FORMAT = "[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 MAX_BYTES = 5 * 1024 * 1024  # 5MB
 BACKUP_COUNT = 5
@@ -14,7 +14,7 @@ BACKUP_COUNT = 5
 # Validate and set log level
 VALID_LOG_LEVELS = {"DEBUG": DEBUG, "INFO": INFO, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
 LOG_LEVEL = getenv("LOG_LEVEL", "DEBUG").upper()
-LOG_LEVEL = VALID_LOG_LEVELS.get(LOG_LEVEL, DEBUG)  # Default to DEBUG if invalid
+LOG_LEVEL = VALID_LOG_LEVELS.get(LOG_LEVEL, DEBUG)
 
 # Ensure log directory exists
 try:
@@ -23,35 +23,33 @@ except OSError as e:
     print(f"Failed to create log directory: {e}", file=stderr)
     raise
 
-# Create logger
-logger = getLogger(__name__)
-logger.setLevel(LOG_LEVEL)
+# Shared formatter and handlers (only created once)
+_formatter = Formatter(LOG_FORMAT, DATE_FORMAT)
 
-# Remove existing handlers
-logger.handlers.clear()
+_console_handler = StreamHandler()
+_console_handler.setLevel(INFO)
+_console_handler.setFormatter(_formatter)
 
 try:
-    # Console handler (set to INFO to avoid excessive DEBUG logs)
-    console_handler = StreamHandler()
-    console_handler.setLevel(INFO)
-    console_handler.setFormatter(Formatter(LOG_FORMAT, DATE_FORMAT))
-    logger.addHandler(console_handler)
+    _file_handler = RotatingFileHandler(
+        LOG_FILE, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8"
+    )
+    _file_handler.setLevel(LOG_LEVEL)
+    _file_handler.setFormatter(_formatter)
+except IOError as e:
+    print(f"Failed to setup file logging: {e}", file=stderr)
+    _file_handler = None
 
-    # File handler
-    try:
-        file_handler = RotatingFileHandler(
-            LOG_FILE, maxBytes=MAX_BYTES, backupCount=BACKUP_COUNT, encoding="utf-8"
-        )
-        file_handler.setLevel(LOG_LEVEL)
-        file_handler.setFormatter(Formatter(LOG_FORMAT, DATE_FORMAT))
-        logger.addHandler(file_handler)
-    except IOError as e:
-        logger.error(f"Failed to setup file logging: {e}")
+def get_logger(name=None):
+    """Returns a configured logger instance."""
+    logger_name = name if name else "global"
+    logger = getLogger(logger_name)
+    logger.setLevel(LOG_LEVEL)
 
-except Exception as e:
-    print(f"Failed to setup logging: {e}", file=stderr)
-    raise
+    # Add handlers only if they haven't been added already
+    if not logger.handlers:
+        logger.addHandler(_console_handler)
+        if _file_handler:
+            logger.addHandler(_file_handler)
 
-def get_logger():
-    """Returns the configured logger instance."""
     return logger
