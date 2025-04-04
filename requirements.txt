@@ -1,0 +1,6 @@
+aiohttp
+beautifulsoup4
+html5lib
+playwright
+requests
+tenacity
