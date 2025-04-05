@@ -1,6 +1,11 @@
+if __name__ == "__main__":
+    from sys import path as spath
+    from os import path as opath
+    spath.append(opath.abspath(opath.join(opath.dirname(__file__), '..')))
+    
 import re
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
 from utils.logger import get_logger
 from traceback import format_exc
@@ -37,7 +42,7 @@ def validate_html(html: str) -> bool:
         return False
 
 class ScriptExtractor:
-    def __init__(self, html: str):
+    def __init__(self, html: str, proxy: Optional[str] = None, user_agent: Optional[str] = None):
         if not html or not isinstance(html, str) or not html.strip():
             raise TypeError("HTML content must be a non-empty string.")
 
@@ -92,3 +97,6 @@ class ScriptExtractor:
         report["detailed_inline_scripts"] = detailed_report
         logger.info(f"Generated report: {json.dumps(report, indent=4)}")
         return report
+    
+
+
