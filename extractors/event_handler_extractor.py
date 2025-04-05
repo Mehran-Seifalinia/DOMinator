@@ -48,22 +48,23 @@ class EventHandlerExtractor:
     def extract_event_handlers(self) -> List[EventHandler]:
         """Extract event handlers from HTML attributes."""
         event_handlers = []
-
-        for tag in self.soup.find_all(True, attrs={attribute: True} for attribute in EVENT_HANDLER_ATTRIBUTES):
-            for attribute in tag.attrs:
-                if attribute in EVENT_HANDLER_ATTRIBUTES:
+    
+        # Iterate over all tags in the HTML
+        for tag in self.soup.find_all(True):  # True means all tags
+            for attribute in EVENT_HANDLER_ATTRIBUTES:
+                if attribute in tag.attrs:
                     handler = tag[attribute].strip()
                     if handler:
                         event_handlers.append(EventHandler(tag=str(tag.name), attribute=attribute, handler=handler))
                         logger.debug(f"Extracted handler from tag: {tag.name}, attribute: {attribute}")
-
+    
         if not event_handlers:
             logger.info("No event handlers found.")
         else:
             logger.info(f"Successfully extracted {len(event_handlers)} event handlers.")
             if len(event_handlers) > 100:
                 logger.warning("More than 100 event handlers found.")
-
+    
         return event_handlers
 
     def to_json(self, event_handlers: List[EventHandler]) -> str:
