@@ -17,21 +17,28 @@ class EventHandlerExtractor:
         if not html or not isinstance(html, str):
             raise ValueError("HTML content must be a non-empty string.")
         
-        self.soup = BeautifulSoup(html, "html.parser")
+        # Parsing the HTML using BeautifulSoup
+        try:
+            self.soup = BeautifulSoup(html, "html.parser")
+        except Exception as e:
+            logger.error(f"Error parsing HTML: {e}")
+            raise
 
-    def extract_event_handlers(self) -> List[str]:
+    def extract_event_handlers(self) -> List[Dict[str, str]]:
         """Extract event handlers from HTML attributes."""
         event_handlers = []
 
         for tag in self.soup.find_all(True):  # Find all tags in the HTML
             for attribute in EVENT_HANDLER_ATTRIBUTES:
                 if tag.has_attr(attribute):
-                    handler = tag[attribute]
-                    event_handlers.append({
-                        "tag": str(tag.name),
-                        "attribute": attribute,
-                        "handler": handler.strip()
-                    })
+                    handler = tag[attribute].strip()
+                    if handler:
+                        # Extracting event handler and storing them in a structured way
+                        event_handlers.append({
+                            "tag": str(tag.name),
+                            "attribute": attribute,
+                            "handler": handler
+                        })
                     
         if not event_handlers:
             logger.info("No event handlers found.")
