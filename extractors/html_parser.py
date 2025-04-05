@@ -54,13 +54,20 @@ def validate_html(html: str) -> bool:
 
 class ScriptExtractor:
     def __init__(self, html: str, proxy: Optional[str] = None, user_agent: Optional[str] = None):
-        if not html or not isinstance(html, str) or not html.strip():
+        # Ensure the HTML input is a valid non-empty string
+        if not isinstance(html, str) or not html.strip():
             raise TypeError("HTML content must be a non-empty string.")
-
+        
+        # Validate HTML content
         if not validate_html(html):
             raise ValueError("Invalid HTML: The provided HTML is not valid.")
-
-        self.soup = BeautifulSoup(html, "html.parser")
+        
+        # Parse the HTML content into BeautifulSoup object
+        try:
+            self.soup = BeautifulSoup(html, "html.parser")
+        except Exception as e:
+            logger.error(f"Error parsing HTML with BeautifulSoup: {e}\n{format_exc()}")
+            raise ValueError("Failed to parse the HTML content.")  # Raising a more specific exception
 
     def extract_inline_scripts(self) -> List[str]:
         """Extract inline scripts that match DOM XSS patterns."""
