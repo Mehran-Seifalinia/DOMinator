@@ -1,6 +1,6 @@
 import re
 import json
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, ParserError
 from utils.logger import get_logger
 from typing import List, Dict
 
@@ -24,14 +24,13 @@ class EventHandler:
 
 class EventHandlerExtractor:
     def __init__(self, html: str):
-        if not html or not isinstance(html, str):
+        if not html or not isinstance(html, str) or not html.strip():
             logger.error("Invalid input: HTML must be a non-empty string.")
             raise ValueError("HTML content must be a non-empty string.")
         
-        # Parsing the HTML using BeautifulSoup
         try:
             self.soup = BeautifulSoup(html, "html.parser")
-        except Exception as e:
+        except ParserError as e:
             logger.error(f"Error parsing HTML: {e}")
             raise
 
@@ -39,12 +38,11 @@ class EventHandlerExtractor:
         """Extract event handlers from HTML attributes."""
         event_handlers = []
 
-        for tag in self.soup.find_all(True):  # Find all tags in the HTML
-            for attribute in tag.attrs:  # Check only existing attributes
+        for tag in self.soup.find_all(True, attrs={attribute: True} for attribute in EVENT_HANDLER_ATTRIBUTES):
+            for attribute in tag.attrs:
                 if attribute in EVENT_HANDLER_ATTRIBUTES:
                     handler = tag[attribute].strip()
                     if handler:
-                        # Extracting event handler and storing them in a structured way
                         event_handlers.append(EventHandler(tag=str(tag.name), attribute=attribute, handler=handler))
                         logger.debug(f"Extracted handler from tag: {tag.name}, attribute: {attribute}")
 
@@ -59,5 +57,13 @@ class EventHandlerExtractor:
 
     def to_json(self, event_handlers: List[EventHandler]) -> str:
         """Convert event handlers to JSON format."""
-        return json.dumps([eh.__dict__ for eh in event_handlers], indent=4)
+        return json.dumps([self.event_handler_to_dict(eh) for eh in event_handlers], indent=4)
 
+    @staticmethod
+    def event_handler_to_dict(event_handler: EventHandler) -> Dict:
+        """Convert EventHandler object to dictionary."""
+        return {
+            'tag': event_handler.tag,
+            'attribute': event_handler.attribute,
+            'handler': event_handler.handler
+        }
