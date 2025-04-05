@@ -57,24 +57,31 @@ EVENT_HANDLER_ATTRIBUTES = [
 
 class EventHandler:
     def __init__(self, tag: str, attribute: str, handler: str):
+        if not isinstance(tag, str) or not tag.strip():
+            raise ValueError("Tag must be a non-empty string.")
+        if not isinstance(attribute, str) or not attribute.strip():
+            raise ValueError("Attribute must be a non-empty string.")
+        if not isinstance(handler, str) or not handler.strip():
+            raise ValueError("Handler must be a non-empty string.")
         self.tag = tag
         self.attribute = attribute
         self.handler = handler
 
-    def __repr__(self):
+
+    def __repr__(self) -> str:
         return f"<EventHandler tag={self.tag} attribute={self.attribute}>"
 
 class EventHandlerExtractor:
     def __init__(self, html: str):
-        if not html or not isinstance(html, str) or not html.strip():
+        if not html or not isinstance(html, str):
             logger.error("Invalid input: HTML must be a non-empty string.")
             raise ValueError("HTML content must be a non-empty string.")
         
         try:
             self.soup = BeautifulSoup(html, "html.parser")
-        except ParserError as e:
+        except Exception as e:
             logger.error(f"Error parsing HTML: {e}")
-            raise
+            raise ValueError(f"Error parsing HTML: {e}")
 
     def extract_event_handlers(self) -> List[EventHandler]:
         """Extract event handlers from HTML attributes."""
