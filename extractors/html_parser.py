@@ -30,14 +30,25 @@ DOM_XSS_PATTERNS = [
 ]
 
 def validate_html(html: str) -> bool:
-    """Validate the HTML content using html5lib."""
+    """Validate the HTML content using html5lib.
+    
+    This function uses html5lib to parse the given HTML content. It ensures that the HTML is syntactically valid,
+    even if it's not fully correct, since html5lib tries to correct certain mistakes. If the HTML content is severely 
+    malformed and cannot be parsed, a ValueError will be raised.
+    
+    Returns:
+        bool: True if the HTML is valid, False otherwise.
+    """
     try:
+        # Try parsing the HTML content using html5lib
         parse(html)
         return True
     except ValueError as e:
+        # Log and handle the specific error when HTML is invalid
         logger.error(f"Invalid HTML content: {e}")
         return False
     except Exception as e:
+        # Log unexpected errors with the full traceback for debugging purposes
         logger.error(f"Unexpected error during HTML validation: {e}\n{format_exc()}")
         return False
 
