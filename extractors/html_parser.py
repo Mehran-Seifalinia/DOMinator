@@ -72,24 +72,33 @@ class ScriptExtractor:
     def extract_inline_scripts(self) -> List[str]:
         """Extract inline scripts that match DOM XSS patterns."""
         try:
+            # Extracting scripts only once to improve efficiency
             scripts = [
-                script.string.strip() if script.string else script.text.strip()
+                script.string.strip() if script.string else script.get_text().strip()
                 for script in self.soup.find_all("script")
-                if script.string or script.text
+                if script.string or script.get_text()
             ]
+            
+            # Use a set to avoid duplicate scripts
             filtered_scripts = set()
+    
             for script in scripts:
+                # Check each script for potential DOM XSS patterns
                 for pattern in DOM_XSS_PATTERNS:
                     if re.search(pattern, script):
                         filtered_scripts.add(script)
-                        break
-
+                        break  # Break once a matching pattern is found
+            
             if not filtered_scripts:
                 logger.debug("No potential DOM XSS inline scripts found.")
+            
+            # Return a list of filtered scripts
             return list(filtered_scripts)
+        
         except Exception as e:
             logger.error(f"Unexpected error extracting inline scripts: {e}\n{format_exc()}")
             return []
+
 
     def get_scripts(self) -> List[str]:
         """Extract inline scripts concurrently."""
