@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from utils.logger import get_logger
 from traceback import format_exc
 from html5lib import parse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Logger setup
 logger = get_logger()
@@ -102,14 +102,25 @@ class ScriptExtractor:
 
     def get_scripts(self) -> List[str]:
         """Extract inline scripts concurrently."""
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = [executor.submit(self.extract_inline_scripts) for _ in range(4)]
-            try:
-                results = [future.result() for future in futures]
+        try:
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [executor.submit(self.extract_inline_scripts) for _ in range(4)]
+                
+                # Using as_completed for better performance with large numbers of futures
+                results = []
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                        results.append(result)
+                    except Exception as e:
+                        logger.error(f"Error while processing future: {e}\n{format_exc()}")
+                
+                # Flatten the results from multiple threads
                 return [script for sublist in results for script in sublist]
-            except Exception as e:
-                logger.error(f"Error extracting inline scripts: {e}\n{format_exc()}")
-                return []
+        
+        except Exception as e:
+            logger.error(f"Error extracting inline scripts: {e}\n{format_exc()}")
+            return []
 
     def generate_report(self, inline_scripts: List[str]) -> Dict[str, List[str]]:
         """Generate a summary report based on inline scripts."""
