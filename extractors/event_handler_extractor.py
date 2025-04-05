@@ -114,13 +114,24 @@ class EventHandlerExtractor:
 
     def to_json(self, event_handlers: List[EventHandler]) -> str:
         """Convert event handlers to JSON format."""
-        return json.dumps([self.event_handler_to_dict(eh) for eh in event_handlers], indent=4)
+        if not event_handlers:
+            logger.warning("No event handlers to convert to JSON.")
+        
+        try:
+            # Convert event handlers to JSON format
+            return json.dumps([self.event_handler_to_dict(eh) for eh in event_handlers], indent=4)
+        except (TypeError, ValueError) as e:
+            logger.error(f"Error converting event handlers to JSON: {e}")
+            raise
+
 
     @staticmethod
     def event_handler_to_dict(event_handler: EventHandler) -> Dict:
         """Convert EventHandler object to dictionary."""
+        # Ensure all attributes are properly handled (e.g., if None, set to an empty string)
         return {
-            'tag': event_handler.tag,
-            'attribute': event_handler.attribute,
-            'handler': event_handler.handler
+            'tag': event_handler.tag or '',
+            'attribute': event_handler.attribute or '',
+            'handler': event_handler.handler or ''
         }
+
