@@ -8,9 +8,20 @@ logger = get_logger(__name__)
 
 # Define event handler attributes to look for in HTML
 EVENT_HANDLER_ATTRIBUTES = [
-    'onclick', 'onmouseover', 'onmouseout', 'onload', 'onerror', 'onfocus',
-    'onblur', 'onsubmit', 'onchange', 'onkeydown', 'onkeyup', 'onkeypress',
-    'onresize', 'onunload', 'onabort', 'oninput', 'onselect'
+    'onload', 'onerror', 'onbeforeunload', 'onunload',
+    'onpageshow', 'onpagehide', 'onresize', 'onscroll',
+    'onclick', 'ondblclick', 'onmouseover', 'onmouseout',
+    'oncontextmenu', 'onkeydown', 'onkeyup', 'onkeypress',
+    'onchange', 'oninput', 'oninvalid', 'onselect', 'onsubmit',
+    'onreset', 'onfocus', 'onblur', 'onfocusin', 'onfocusout',
+    'onabort', 'oncanplay', 'oncanplaythrough', 'ondurationchange',
+    'onemptied', 'onended', 'onloadeddata', 'onloadedmetadata',
+    'onloadstart', 'onpause', 'onplay', 'onplaying', 'onseeked',
+    'onseeking', 'onstalled', 'onsuspend', 'ontimeupdate',
+    'onvolumechange', 'onwaiting',
+    'ondrag', 'ondragend', 'ondragenter', 'ondragleave',
+    'ondragover', 'ondragstart', 'ondrop',
+    'oncopy', 'oncut', 'onpaste'
 ]
 
 class EventHandler:
