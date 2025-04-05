@@ -99,30 +99,11 @@ class ScriptExtractor:
             logger.error(f"Unexpected error extracting inline scripts: {e}\n{format_exc()}")
             return []
 
-
     def get_scripts(self) -> List[str]:
-        """Extract inline scripts concurrently."""
-        try:
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = [executor.submit(self.extract_inline_scripts) for _ in range(4)]
-                
-                # Using as_completed for better performance with large numbers of futures
-                results = []
-                for future in as_completed(futures):
-                    try:
-                        result = future.result()
-                        results.append(result)
-                    except Exception as e:
-                        logger.error(f"Error while processing future: {e}\n{format_exc()}")
-                
-                # Flatten the results from multiple threads
-                return [script for sublist in results for script in sublist]
-        
-        except Exception as e:
-            logger.error(f"Error extracting inline scripts: {e}\n{format_exc()}")
-            return []
+        """Extract inline scripts (no need for multithreading)."""
+        return self.extract_inline_scripts()
 
-    def generate_report(self, inline_scripts: List[str], max_preview_length: int = 50) -> Dict[str, List[str]]:
+    def generate_report(self, inline_scripts: List[str], max_preview_length: int = 120) -> Dict[str, List[str]]:
         """Generate a summary report based on inline scripts."""
         # Report structure
         report = {
