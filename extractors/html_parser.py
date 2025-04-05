@@ -122,19 +122,22 @@ class ScriptExtractor:
             logger.error(f"Error extracting inline scripts: {e}\n{format_exc()}")
             return []
 
-    def generate_report(self, inline_scripts: List[str]) -> Dict[str, List[str]]:
+    def generate_report(self, inline_scripts: List[str], max_preview_length: int = 50) -> Dict[str, List[str]]:
         """Generate a summary report based on inline scripts."""
+        # Report structure
         report = {
             "inline_scripts": len(inline_scripts),
         }
-
+    
         detailed_report = []
         for idx, script in enumerate(inline_scripts, start=1):
-            detailed_report.append(f"Script {idx}: {script[:50]}...")
-
-        report["detailed_inline_scripts"] = detailed_report
-        logger.info(f"Generated report: {json.dumps(report, indent=4)}")
-        return report
+            # Preview length for each script, controlled by max_preview_length
+            preview = script[:max_preview_length] + '...' if len(script) > max_preview_length else script
+            detailed_report.append(f"Script {idx}: {preview}")
     
-
-
+        report["detailed_inline_scripts"] = detailed_report
+        
+        # Using logger with a higher logging level (could be debug or info depending on the use case)
+        logger.debug(f"Generated report: {json.dumps(report, indent=4)}")
+        
+        return report
