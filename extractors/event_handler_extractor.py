@@ -21,7 +21,38 @@ EVENT_HANDLER_ATTRIBUTES = [
     'onvolumechange', 'onwaiting',
     'ondrag', 'ondragend', 'ondragenter', 'ondragleave',
     'ondragover', 'ondragstart', 'ondrop',
-    'oncopy', 'oncut', 'onpaste'
+    'oncopy', 'oncut', 'onpaste',
+    # HTML5 Events
+    'onreset', 'onsearch', 'onstorage', 'onerror', 'onhashchange',
+    'onpopstate', 'onanimationstart', 'onanimationend', 'onanimationiteration',
+    'ontransitionend', 'onfullscreenchange', 'onfullscreenerror',
+    # Mobile/Touch Events
+    'ontouchstart', 'ontouchmove', 'ontouchend', 'ontouchcancel',
+    'ongesturestart', 'ongesturechange', 'ongestureend',
+    'onorientationchange', 'ondevicemotion', 'ondeviceorientation',
+    'onpointerdown', 'onpointermove', 'onpointerup', 'onpointercancel',
+    # Form-related events
+    'oninput', 'onchange', 'onfocus', 'onblur', 'onselect',
+    'onreset', 'onsubmit', 'oninvalid', 'onkeypress', 'onkeyup', 'onkeydown',
+    # Audio/Video Events
+    'onplay', 'onpause', 'onended', 'onvolumechange', 'onseeked',
+    'onwaiting', 'oncanplay', 'oncanplaythrough', 'onloadeddata', 'onloadedmetadata',
+    # Clipboard Events
+    'oncopy', 'oncut', 'onpaste', 'onbeforecut', 'onbeforecopy',
+    # Pointer Events (widely supported in modern browsers)
+    'onpointerdown', 'onpointerup', 'onpointermove', 'onpointercancel', 'onpointerenter',
+    'onpointerleave', 'onpointerover', 'onpointerout',
+    # Drag and Drop events
+    'ondragstart', 'ondrag', 'ondragover', 'ondragenter', 'ondragleave',
+    'ondrop', 'ondragend', 
+    # Media Events
+    'onvolumechange', 'onplay', 'onpause', 'onended', 'onseeked', 'onseek', 'ontimeupdate',
+    # File API Events
+    'onabort', 'onerror', 'onload', 'onloadend', 'onloadstart', 'onprogress', 'ontimeout',
+    'onratechange', 'onstalled', 'onsuspend',
+    # Fetch and Service Worker Events
+    'onfetch', 'oninstall', 'onactivate', 'onmessage', 'onpush', 'onpushsubscriptionchange',
+    'onbeforeinstallprompt', 'onunload', 'onbeforeunload', 'onpagehide', 'onpageshow'
 ]
 
 class EventHandler:
