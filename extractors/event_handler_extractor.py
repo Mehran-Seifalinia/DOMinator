@@ -1,12 +1,11 @@
-import re
 import json
-from bs4 import BeautifulSoup, ParserError
+from bs4 import BeautifulSoup
 from utils.logger import get_logger
 from typing import List, Dict
 
 logger = get_logger(__name__)
 
-# Define event handler attributes to look for in HTML
+# Define event handler attributes to look for in HTML (removed duplicates)
 EVENT_HANDLER_ATTRIBUTES = [
     'onload', 'onerror', 'onbeforeunload', 'onunload',
     'onpageshow', 'onpagehide', 'onresize', 'onscroll',
@@ -23,7 +22,7 @@ EVENT_HANDLER_ATTRIBUTES = [
     'ondragover', 'ondragstart', 'ondrop',
     'oncopy', 'oncut', 'onpaste',
     # HTML5 Events
-    'onreset', 'onsearch', 'onstorage', 'onerror', 'onhashchange',
+    'onsearch', 'onstorage', 'onhashchange',
     'onpopstate', 'onanimationstart', 'onanimationend', 'onanimationiteration',
     'ontransitionend', 'onfullscreenchange', 'onfullscreenerror',
     # Mobile/Touch Events
@@ -32,19 +31,18 @@ EVENT_HANDLER_ATTRIBUTES = [
     'onorientationchange', 'ondevicemotion', 'ondeviceorientation',
     'onpointerdown', 'onpointermove', 'onpointerup', 'onpointercancel',
     # Form-related events
-    'oninput', 'onchange', 'onfocus', 'onblur', 'onselect',
     'onreset', 'onsubmit', 'oninvalid', 'onkeypress', 'onkeyup', 'onkeydown',
     # Audio/Video Events
     'onplay', 'onpause', 'onended', 'onvolumechange', 'onseeked',
     'onwaiting', 'oncanplay', 'oncanplaythrough', 'onloadeddata', 'onloadedmetadata',
     # Clipboard Events
-    'oncopy', 'oncut', 'onpaste', 'onbeforecut', 'onbeforecopy',
+    'onbeforecut', 'onbeforecopy',
     # Pointer Events (widely supported in modern browsers)
     'onpointerdown', 'onpointerup', 'onpointermove', 'onpointercancel', 'onpointerenter',
     'onpointerleave', 'onpointerover', 'onpointerout',
     # Drag and Drop events
     'ondragstart', 'ondrag', 'ondragover', 'ondragenter', 'ondragleave',
-    'ondrop', 'ondragend', 
+    'ondrop', 'ondragend',
     # Media Events
     'onvolumechange', 'onplay', 'onpause', 'onended', 'onseeked', 'onseek', 'ontimeupdate',
     # File API Events
@@ -67,12 +65,15 @@ class EventHandler:
         self.attribute = attribute
         self.handler = handler
 
-
     def __repr__(self) -> str:
         return f"<EventHandler tag={self.tag} attribute={self.attribute}>"
 
 class EventHandlerExtractor:
     def __init__(self, html: str):
+        """
+        Initializes the EventHandlerExtractor with the given HTML content.
+        :param html: The HTML content to parse.
+        """
         if not html or not isinstance(html, str):
             logger.error("Invalid input: HTML must be a non-empty string.")
             raise ValueError("HTML content must be a non-empty string.")
@@ -84,7 +85,10 @@ class EventHandlerExtractor:
             raise ValueError(f"Error parsing HTML: {e}")
 
     def extract_event_handlers(self) -> List[EventHandler]:
-        """Extract event handlers from HTML attributes."""
+        """
+        Extract event handlers from HTML attributes.
+        :return: A list of EventHandler objects.
+        """
         event_handlers = []
         
         # Create a set from EVENT_HANDLER_ATTRIBUTES for faster lookups
@@ -113,9 +117,14 @@ class EventHandlerExtractor:
         return event_handlers
 
     def to_json(self, event_handlers: List[EventHandler]) -> str:
-        """Convert event handlers to JSON format."""
+        """
+        Convert event handlers to JSON format.
+        :param event_handlers: List of EventHandler objects to convert.
+        :return: A JSON string representing the event handlers.
+        """
         if not event_handlers:
-            logger.warning("No event handlers to convert to JSON.")
+            logger.error("No event handlers to convert to JSON.")
+            raise ValueError("No event handlers available for conversion to JSON.")
         
         try:
             # Convert event handlers to JSON format
@@ -124,14 +133,15 @@ class EventHandlerExtractor:
             logger.error(f"Error converting event handlers to JSON: {e}")
             raise
 
-
     @staticmethod
     def event_handler_to_dict(event_handler: EventHandler) -> Dict:
-        """Convert EventHandler object to dictionary."""
-        # Ensure all attributes are properly handled (e.g., if None, set to an empty string)
+        """
+        Convert EventHandler object to dictionary.
+        :param event_handler: The EventHandler object to convert.
+        :return: A dictionary representation of the EventHandler.
+        """
         return {
             'tag': event_handler.tag or '',
             'attribute': event_handler.attribute or '',
             'handler': event_handler.handler or ''
         }
-
