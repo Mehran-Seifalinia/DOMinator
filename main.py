@@ -1,3 +1,5 @@
+#!/usr/bin/ python3
+
 from asyncio import Queue, gather, run
 from aiohttp import ClientSession, ClientTimeout, ClientError
 from json import dump, dumps
