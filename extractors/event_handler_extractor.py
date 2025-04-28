@@ -2,74 +2,10 @@ import json
 from bs4 import BeautifulSoup
 from utils.logger import get_logger
 from typing import List, Dict, Optional
-from dataclasses import dataclass
+from utils.patterns import EVENT_HANDLER_ATTRIBUTES, get_risk_level
+from utils.analysis_result import EventHandler, AnalysisResult
 
 logger = get_logger(__name__)
-
-# Define event handler attributes to look for in HTML (removed duplicates)
-EVENT_HANDLER_ATTRIBUTES = [
-    'onload', 'onerror', 'onbeforeunload', 'onunload',
-    'onpageshow', 'onpagehide', 'onresize', 'onscroll',
-    'onclick', 'ondblclick', 'onmouseover', 'onmouseout',
-    'oncontextmenu', 'onkeydown', 'onkeyup', 'onkeypress',
-    'onchange', 'oninput', 'oninvalid', 'onselect', 'onsubmit',
-    'onreset', 'onfocus', 'onblur', 'onfocusin', 'onfocusout',
-    'onabort', 'oncanplay', 'oncanplaythrough', 'ondurationchange',
-    'onemptied', 'onended', 'onloadeddata', 'onloadedmetadata',
-    'onloadstart', 'onpause', 'onplay', 'onplaying', 'onseeked',
-    'onseeking', 'onstalled', 'onsuspend', 'ontimeupdate',
-    'onvolumechange', 'onwaiting',
-    'ondrag', 'ondragend', 'ondragenter', 'ondragleave',
-    'ondragover', 'ondragstart', 'ondrop',
-    'oncopy', 'oncut', 'onpaste',
-    # HTML5 Events
-    'onsearch', 'onstorage', 'onhashchange',
-    'onpopstate', 'onanimationstart', 'onanimationend', 'onanimationiteration',
-    'ontransitionend', 'onfullscreenchange', 'onfullscreenerror',
-    # Mobile/Touch Events
-    'ontouchstart', 'ontouchmove', 'ontouchend', 'ontouchcancel',
-    'ongesturestart', 'ongesturechange', 'ongestureend',
-    'onorientationchange', 'ondevicemotion', 'ondeviceorientation',
-    'onpointerdown', 'onpointermove', 'onpointerup', 'onpointercancel',
-    # Form-related events
-    'onreset', 'onsubmit', 'oninvalid', 'onkeypress', 'onkeyup', 'onkeydown',
-    # Audio/Video Events
-    'onplay', 'onpause', 'onended', 'onvolumechange', 'onseeked',
-    'onwaiting', 'oncanplay', 'oncanplaythrough', 'onloadeddata', 'onloadedmetadata',
-    # Clipboard Events
-    'onbeforecut', 'onbeforecopy',
-    # Pointer Events (widely supported in modern browsers)
-    'onpointerdown', 'onpointerup', 'onpointermove', 'onpointercancel', 'onpointerenter',
-    'onpointerleave', 'onpointerover', 'onpointerout',
-    # Drag and Drop events
-    'ondragstart', 'ondrag', 'ondragover', 'ondragenter', 'ondragleave',
-    'ondrop', 'ondragend',
-    # Media Events
-    'onvolumechange', 'onplay', 'onpause', 'onended', 'onseeked', 'onseek', 'ontimeupdate',
-    # File API Events
-    'onabort', 'onerror', 'onload', 'onloadend', 'onloadstart', 'onprogress', 'ontimeout',
-    'onratechange', 'onstalled', 'onsuspend',
-    # Fetch and Service Worker Events
-    'onfetch', 'oninstall', 'onactivate', 'onmessage', 'onpush', 'onpushsubscriptionchange',
-    'onbeforeinstallprompt', 'onunload', 'onbeforeunload', 'onpagehide', 'onpageshow'
-]
-
-@dataclass
-class EventHandler:
-    tag: str
-    attribute: str
-    handler: str
-    line: Optional[int] = None
-    column: Optional[int] = None
-
-    def to_dict(self) -> Dict:
-        return {
-            'tag': self.tag,
-            'attribute': self.attribute,
-            'handler': self.handler,
-            'line': self.line,
-            'column': self.column
-        }
 
 class EventHandlerExtractor:
     def __init__(self, html: str):
@@ -102,16 +38,18 @@ class EventHandlerExtractor:
             
             # Check all attributes of the tag
             for attr_name, attr_value in tag.attrs.items():
-                if attr_name.startswith('on'):
+                if attr_name in EVENT_HANDLER_ATTRIBUTES:
                     if attr_name not in event_handlers:
                         event_handlers[attr_name] = []
                     
+                    risk_level = get_risk_level(attr_name)
                     handler = EventHandler(
                         tag=str(tag.name),
                         attribute=attr_name,
                         handler=str(attr_value),
                         line=line,
-                        column=column
+                        column=column,
+                        risk_level=risk_level
                     )
                     event_handlers[attr_name].append(handler)
                     logger.debug(f"Extracted handler from tag: {tag.name}, attribute: {attr_name}")
