@@ -151,7 +151,12 @@ async def scan_url_async(
             external_urls = await extract_external_scripts(html_content)
             logger.info(f"Found {len(external_urls)} external JavaScript files")
 
-        analyzer = DynamicAnalyzer(html_content, external_urls=external_urls)
+        analyzer = DynamicAnalyzer(
+            html_content, 
+            external_urls=external_urls,
+            headless=headless,
+            user_agent=user_agent
+        )
         dynamic_results = await analyzer.run_analysis()
         if hasattr(dynamic_results, 'to_dict'):
             dynamic_results = dynamic_results.to_dict()
