@@ -14,13 +14,14 @@ from scanners.static_analyzer import StaticAnalyzer
 from scanners.dynamic_analyzer import DynamicAnalyzer
 from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity, AttackVector
 from utils.logger import get_logger
-from utils.analysis_result import AnalysisResult, Occurrence
+from utils.analysis_result import AnalysisResult, Occurrence, EventHandler
 from argparse import ArgumentParser
 from sys import exit
 from csv import DictWriter
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import urljoin, urlparse
 
 # Set up logger
 logger = get_logger(__name__)
@@ -95,7 +96,7 @@ async def fetch_html(url: str, session: ClientSession, timeout: int, headers: Op
         logger.error(f"Unexpected error fetching {url}: {str(e)}")
         return None
 
-async def extract_external_scripts(html_content: str, base_url: str) -> List[str]:
+async def extract_external_scripts(html_content: str, base_url: str) -> Set[str]:
     """
     Extract external JavaScript URLs from HTML content.
     
@@ -104,11 +105,11 @@ async def extract_external_scripts(html_content: str, base_url: str) -> List[str
         base_url (str): Base URL for resolving relative paths
         
     Returns:
-        List[str]: List of external JavaScript URLs
+        Set[str]: Set of unique external JavaScript URLs
     """
     try:
         soup = BeautifulSoup(html_content, "html.parser")
-        external_scripts = []
+        external_scripts = set()
         
         for script in soup.find_all("script", src=True):
             src = script.get("src", "")
@@ -116,17 +117,15 @@ async def extract_external_scripts(html_content: str, base_url: str) -> List[str
                 # Handle relative URLs
                 if src.startswith("//"):
                     src = f"https:{src}"
-                elif src.startswith("/"):
-                    src = f"{base_url.rstrip('/')}{src}"
                 elif not src.startswith(("http://", "https://")):
-                    src = f"{base_url.rstrip('/')}/{src.lstrip('/')}"
-                external_scripts.append(src)
+                    src = urljoin(base_url, src)
+                external_scripts.add(src)
                 
-        logger.info(f"Extracted {len(external_scripts)} external JavaScript URLs")
+        logger.info(f"Extracted {len(external_scripts)} unique external JavaScript URLs")
         return external_scripts
     except Exception as e:
         logger.error(f"Error extracting external scripts: {e}")
-        return []
+        return set()
 
 async def scan_url_async(
     url: str,
@@ -166,15 +165,14 @@ async def scan_url_async(
         html_content = await fetch_html(url, session, timeout, headers)
         if not html_content:
             logger.error(f"Failed to fetch HTML from {url}")
-            await results_queue.put({
-                "url": url,
-                "status": "Error",
-                "error_message": "Failed to fetch HTML content"
-            })
+            result = AnalysisResult()
+            result.url = url
+            result.set_error("Failed to fetch HTML content")
+            await results_queue.put(result.to_dict())
             return
         
         # Extract external scripts
-        external_urls = []
+        external_urls = set()
         if not no_external:
             external_urls = await extract_external_scripts(html_content, url)
             logger.info(f"Found {len(external_urls)} external JavaScript files")
@@ -182,7 +180,7 @@ async def scan_url_async(
         # Create analysis result
         result = AnalysisResult()
         result.url = url
-        result.start_time = start_time
+        result.start_time = datetime.fromtimestamp(start_time)
 
         # Run static analysis
         logger.info(f"Running static analysis for {url}...")
@@ -193,19 +191,13 @@ async def scan_url_async(
         # Run dynamic analysis
         logger.info(f"Running dynamic analysis for {url}...")
         dynamic_analyzer = DynamicAnalyzer(
-            html_content, 
-            external_urls=external_urls,
+            html_content=html_content,
+            external_urls=list(external_urls),
             headless=headless,
             user_agent=user_agent
         )
         dynamic_result = await dynamic_analyzer.run_analysis()
         result.merge_dynamic_results(dynamic_result)
-
-        # Extract and analyze event handlers
-        logger.info(f"Analyzing event handlers for {url}...")
-        extractor = EventHandlerExtractor(html_content)
-        event_handlers_result = await extractor.extract(session, url, timeout)
-        result.merge_event_handlers(event_handlers_result)
 
         # Calculate final risk score and priority
         logger.info(f"Calculating risk scores for {url}...")
@@ -229,7 +221,7 @@ async def scan_url_async(
 
         result.set_priority_score(priority_score)
         result.set_severity(severity)
-        result.end_time = time()
+        result.end_time = datetime.now()
         result.set_completed()
 
         await results_queue.put(result.to_dict())
@@ -237,11 +229,10 @@ async def scan_url_async(
 
     except Exception as e:
         logger.error(f"Error while scanning {url}: {e}")
-        await results_queue.put({
-            "url": url,
-            "status": "Error",
-            "error_message": str(e)
-        })
+        result = AnalysisResult()
+        result.url = url
+        result.set_error(str(e))
+        await results_queue.put(result.to_dict())
 
 def write_results_to_csv(results: List[Dict[str, Any]], output_file: str) -> None:
     """
@@ -258,15 +249,15 @@ def write_results_to_csv(results: List[Dict[str, Any]], output_file: str) -> Non
         writer.writeheader()
         for result in results:
             row = {
-                "url": result["url"],
-                "status": result["status"],
+                "url": result.get("url", "N/A"),
+                "status": result.get("status", "Unknown"),
                 "elapsed_time": result.get("elapsed_time", 0),
                 "severity": result.get("severity", "Unknown"),
                 "priority_score": result.get("priority_score", 0),
                 "static_vulnerabilities": dumps(result.get("static_results", {})),
                 "dynamic_vulnerabilities": dumps(result.get("dynamic_results", {})),
                 "event_handlers": dumps(result.get("event_handlers", {})),
-                "external_scripts": dumps(result.get("external_scripts", [])),
+                "external_scripts": dumps(result.get("external_script_risks", [])),
                 "error_message": result.get("error_message", "")
             }
             writer.writerow(row)
@@ -375,7 +366,15 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
             border-radius: 4px;
             text-align: center;
         }
+        
+        .chart-container {
+            margin-top: 20px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+        }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
@@ -394,10 +393,42 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
                 <p>{{AVG_SCAN_TIME}}s</p>
             </div>
         </div>
+        <div class="chart-container">
+            <canvas id="vulnerabilityChart"></canvas>
+        </div>
         <div class="results">
             {{RESULTS}}
         </div>
     </div>
+    <script>
+        const ctx = document.getElementById('vulnerabilityChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['High', 'Medium', 'Low'],
+                datasets: [{
+                    label: 'Vulnerabilities by Severity',
+                    data: {{SEVERITY_DATA}},
+                    backgroundColor: [
+                        'rgba(231, 76, 60, 0.8)',
+                        'rgba(241, 196, 15, 0.8)',
+                        'rgba(52, 152, 219, 0.8)'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                }
+            }
+        });
+    </script>
 </body>
 </html>"""
     
@@ -405,17 +436,27 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
     total_vulns = sum(
         len(r.get("static_results", [])) + 
         len(r.get("dynamic_results", [])) + 
-        len(r.get("event_handlers", [])) 
-        for r in results if r.get("status") == "Completed"
+        len(r.get("event_handlers", {})) 
+        for r in results if r.get("status") == "completed"
     )
     avg_scan_time = sum(
         r.get("elapsed_time", 0) 
-        for r in results if r.get("status") == "Completed"
-    ) / max(1, len([r for r in results if r.get("status") == "Completed"]))
+        for r in results if r.get("status") == "completed"
+    ) / max(1, len([r for r in results if r.get("status") == "completed"]))
+    
+    # Calculate severity statistics
+    severity_counts = {"high": 0, "medium": 0, "low": 0}
+    for result in results:
+        if result.get("status") == "completed":
+            severity = result.get("severity", "").lower()
+            if severity in severity_counts:
+                severity_counts[severity] += 1
+    
+    severity_data = [severity_counts["high"], severity_counts["medium"], severity_counts["low"]]
     
     results_html = ""
     for result in results:
-        status_class = "status-completed" if result.get("status") == "Completed" else "status-error"
+        status_class = "status-completed" if result.get("status") == "completed" else "status-error"
         severity = result.get("severity", "Unknown")
         severity_class = f"severity-{severity.lower()}" if severity in ["High", "Medium", "Low"] else ""
         
@@ -487,6 +528,7 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
     full_html = full_html.replace("{{TOTAL_URLS}}", str(total_urls))
     full_html = full_html.replace("{{TOTAL_VULNS}}", str(total_vulns))
     full_html = full_html.replace("{{AVG_SCAN_TIME}}", f"{avg_scan_time:.2f}")
+    full_html = full_html.replace("{{SEVERITY_DATA}}", str(severity_data))
     
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(full_html)
