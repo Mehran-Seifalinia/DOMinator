@@ -1,45 +1,11 @@
-from re import compile
-from utils.logger import get_logger
-from requests import get, Response
 from typing import List, Dict, Optional, TypedDict
 from dataclasses import dataclass
 from scanners.priority_manager import PriorityManager
 from extractors.html_parser import ScriptExtractor
+from utils.logger import get_logger
+from utils.patterns import DANGEROUS_JS_PATTERNS, DANGEROUS_HTML_PATTERNS, get_risk_level
 
 logger = get_logger()
-
-dangerous_patterns = [
-    compile(r"(?i)\beval\s*\("),
-    compile(r"(?i)\bFunction\s*\("),
-    compile(r"(?i)window\s*\[\s*['\"]eval['\"]\s*\]"),
-    compile(r"(?i)document\.(write|writeln|open)\s*\("),
-    compile(r"(?i)(setTimeout|setInterval)\s*\("),
-    compile(r"(?i)new\s+(ActiveXObject|XMLHttpRequest)\s*\("),
-    compile(r"(?i)document\.cookie\s*="),
-    compile(r"(?i)localStorage\s*=",),
-    compile(r"(?i)sessionStorage\s*=",),
-    compile(r"(?i)window\.location\s*="), 
-    compile(r"(?i)fetch\s*\("),
-]
-
-dangerous_html_patterns = [
-    compile(r"(?i)on\w+\s*="),
-    compile(r"(?i)javascript\s*:"), 
-    compile(r"(?i)data\s*:\s*text\s*/\s*html"),
-    compile(r"(?i)<\s*script[^>]*>.*<\s*/\s*script\s*>"),
-    compile(r"(?i)<\s*iframe[^>]*>.*<\s*/\s*iframe\s*>"),
-    compile(r"(?i)<\s*object\s*data\s*=\s*['\"].*['\"]\s*>"),
-]
-
-RISK_LEVELS = {
-    'eval': 'high',
-    'Function': 'high',
-    'innerHTML': 'medium',
-    'onclick': 'medium',
-}
-
-def assess_risk(pattern: str) -> str:
-    return RISK_LEVELS.get(pattern.lower(), 'unknown')
 
 class Occurrence(TypedDict):
     line: Optional[int]
@@ -65,9 +31,9 @@ class StaticAnalyzer:
         occurrences = []
         
         for line_num, script in enumerate(self.extractor.inline_scripts, start=1):
-            for pattern in dangerous_patterns:
+            for pattern in DANGEROUS_JS_PATTERNS:
                 for match in pattern.finditer(script):
-                    risk_level = assess_risk(match.group())
+                    risk_level = get_risk_level(match.group())
                     priority = PriorityManager.calculate_optimized_priority(risk_level)
                     occurrences.append({
                         "line": line_num,
@@ -79,9 +45,9 @@ class StaticAnalyzer:
                     })
     
         for tag, attr, value, line in self.extractor.dangerous_html_elements:
-            for pattern in dangerous_html_patterns:
+            for pattern in DANGEROUS_HTML_PATTERNS:
                 if pattern.search(attr) or pattern.search(value):
-                    risk_level = assess_risk(attr)
+                    risk_level = get_risk_level(attr)
                     priority = PriorityManager.calculate_optimized_priority(risk_level)
                     occurrences.append({
                         "line": line,
@@ -93,7 +59,6 @@ class StaticAnalyzer:
                     })
     
         return occurrences
-
 
     def analyze(self) -> ScriptAnalysis:
         try:
