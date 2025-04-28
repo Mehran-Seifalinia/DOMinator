@@ -1,17 +1,35 @@
-import json
+"""
+Event Handler Extractor Module
+Extracts and analyzes event handlers from HTML content for DOM XSS detection.
+"""
+
+from json import dumps
 from bs4 import BeautifulSoup
 from utils.logger import get_logger
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from utils.patterns import EVENT_HANDLER_ATTRIBUTES, get_risk_level
 from utils.analysis_result import EventHandler, AnalysisResult
 
 logger = get_logger(__name__)
 
 class EventHandlerExtractor:
-    def __init__(self, html: str):
+    """
+    A class for extracting and analyzing event handlers from HTML content.
+    
+    This class parses HTML content and identifies event handlers that could potentially
+    be used in DOM XSS attacks. It provides methods to extract handlers and convert
+    them to various formats.
+    """
+    
+    def __init__(self, html: str) -> None:
         """
-        Initializes the EventHandlerExtractor with the given HTML content.
-        :param html: The HTML content to parse.
+        Initialize the EventHandlerExtractor with HTML content.
+        
+        Args:
+            html (str): The HTML content to parse
+            
+        Raises:
+            ValueError: If HTML content is invalid or parsing fails
         """
         if not html or not isinstance(html, str):
             logger.error("Invalid input: HTML must be a non-empty string.")
@@ -26,17 +44,20 @@ class EventHandlerExtractor:
     def extract_event_handlers(self) -> Dict[str, List[EventHandler]]:
         """
         Extract event handlers from HTML attributes.
-        :return: A dictionary mapping event types to lists of EventHandler objects.
+        
+        Returns:
+            Dict[str, List[EventHandler]]: A dictionary mapping event types to lists of EventHandler objects
+            
+        Note:
+            This method scans all HTML tags for event handler attributes and creates
+            EventHandler objects for each found handler.
         """
         event_handlers: Dict[str, List[EventHandler]] = {}
         
-        # Iterate over all tags in the HTML
-        for tag in self.soup.find_all(True):  # True means all tags
-            # Get the line number if available
+        for tag in self.soup.find_all(True):
             line = tag.sourceline if hasattr(tag, 'sourceline') else None
             column = tag.sourcepos if hasattr(tag, 'sourcepos') else None
             
-            # Check all attributes of the tag
             for attr_name, attr_value in tag.attrs.items():
                 if attr_name in EVENT_HANDLER_ATTRIBUTES:
                     if attr_name not in event_handlers:
@@ -54,7 +75,6 @@ class EventHandlerExtractor:
                     event_handlers[attr_name].append(handler)
                     logger.debug(f"Extracted handler from tag: {tag.name}, attribute: {attr_name}")
         
-        # Log results
         if not event_handlers:
             logger.info("No event handlers found.")
         else:
@@ -62,7 +82,6 @@ class EventHandlerExtractor:
             logger.info(f"Successfully extracted {total_handlers} event handlers.")
             if total_handlers > 100:
                 logger.warning("More than 100 event handlers found.")
-                # Optionally log some details for debugging
                 logger.debug(f"First 5 handlers: {list(event_handlers.items())[:5]}")
         
         return event_handlers
@@ -70,20 +89,54 @@ class EventHandlerExtractor:
     def to_json(self, event_handlers: Dict[str, List[EventHandler]]) -> str:
         """
         Convert event handlers to JSON format.
-        :param event_handlers: Dictionary of event handlers to convert.
-        :return: A JSON string representing the event handlers.
+        
+        Args:
+            event_handlers (Dict[str, List[EventHandler]]): Dictionary of event handlers to convert
+            
+        Returns:
+            str: A JSON string representing the event handlers
+            
+        Raises:
+            ValueError: If no event handlers are available for conversion
+            TypeError: If conversion to JSON fails
         """
         if not event_handlers:
             logger.error("No event handlers to convert to JSON.")
             raise ValueError("No event handlers available for conversion to JSON.")
         
         try:
-            # Convert event handlers to JSON format
             json_data = {
                 event_type: [handler.to_dict() for handler in handlers]
                 for event_type, handlers in event_handlers.items()
             }
-            return json.dumps(json_data, indent=4)
+            return dumps(json_data, indent=4)
         except (TypeError, ValueError) as e:
             logger.error(f"Error converting event handlers to JSON: {e}")
             raise
+
+    async def extract(self, session: Any, url: str, timeout: int) -> AnalysisResult:
+        """
+        Extract event handlers from the given URL.
+        
+        Args:
+            session (Any): HTTP session for making requests
+            url (str): Target URL to analyze
+            timeout (int): Request timeout in seconds
+            
+        Returns:
+            AnalysisResult: Result of the extraction process
+        """
+        try:
+            event_handlers = self.extract_event_handlers()
+            return AnalysisResult(
+                success=True,
+                data=event_handlers,
+                message="Successfully extracted event handlers"
+            )
+        except Exception as e:
+            logger.error(f"Error extracting event handlers from {url}: {e}")
+            return AnalysisResult(
+                success=False,
+                data={},
+                message=f"Failed to extract event handlers: {str(e)}"
+            )
