@@ -1,5 +1,5 @@
 from re import compile
-from typing import List, Pattern
+from typing import List, Pattern, Set
 
 # JavaScript dangerous patterns
 DANGEROUS_JS_PATTERNS: List[Pattern] = [
@@ -25,6 +25,59 @@ DANGEROUS_HTML_PATTERNS: List[Pattern] = [
     compile(r"(?i)<\s*iframe[^>]*>.*<\s*/\s*iframe\s*>"),
     compile(r"(?i)<\s*object\s*data\s*=\s*['\"].*['\"]\s*>"),
 ]
+
+# Event handler attributes
+EVENT_HANDLER_ATTRIBUTES: Set[str] = {
+    # Window Events
+    'onload', 'onerror', 'onbeforeunload', 'onunload',
+    'onpageshow', 'onpagehide', 'onresize', 'onscroll',
+    
+    # Mouse Events
+    'onclick', 'ondblclick', 'onmouseover', 'onmouseout',
+    'oncontextmenu',
+    
+    # Keyboard Events
+    'onkeydown', 'onkeyup', 'onkeypress',
+    
+    # Form Events
+    'onchange', 'oninput', 'oninvalid', 'onselect', 'onsubmit',
+    'onreset', 'onfocus', 'onblur', 'onfocusin', 'onfocusout',
+    
+    # Media Events
+    'onabort', 'oncanplay', 'oncanplaythrough', 'ondurationchange',
+    'onemptied', 'onended', 'onloadeddata', 'onloadedmetadata',
+    'onloadstart', 'onpause', 'onplay', 'onplaying', 'onseeked',
+    'onseeking', 'onstalled', 'onsuspend', 'ontimeupdate',
+    'onvolumechange', 'onwaiting',
+    
+    # Drag and Drop Events
+    'ondrag', 'ondragend', 'ondragenter', 'ondragleave',
+    'ondragover', 'ondragstart', 'ondrop',
+    
+    # Clipboard Events
+    'oncopy', 'oncut', 'onpaste',
+    
+    # HTML5 Events
+    'onsearch', 'onstorage', 'onhashchange',
+    'onpopstate', 'onanimationstart', 'onanimationend', 'onanimationiteration',
+    'ontransitionend', 'onfullscreenchange', 'onfullscreenerror',
+    
+    # Mobile/Touch Events
+    'ontouchstart', 'ontouchmove', 'ontouchend', 'ontouchcancel',
+    'ongesturestart', 'ongesturechange', 'ongestureend',
+    'onorientationchange', 'ondevicemotion', 'ondeviceorientation',
+    'onpointerdown', 'onpointermove', 'onpointerup', 'onpointercancel',
+    
+    # Pointer Events
+    'onpointerenter', 'onpointerleave', 'onpointerover', 'onpointerout',
+    
+    # File API Events
+    'onprogress', 'ontimeout', 'onratechange',
+    
+    # Fetch and Service Worker Events
+    'onfetch', 'oninstall', 'onactivate', 'onmessage', 'onpush',
+    'onpushsubscriptionchange', 'onbeforeinstallprompt'
+}
 
 # Risk levels for different patterns
 RISK_LEVELS = {
