@@ -11,7 +11,7 @@ from time import time
 from extractors.event_handler_extractor import EventHandlerExtractor
 from scanners.static_analyzer import StaticAnalyzer
 from scanners.dynamic_analyzer import DynamicAnalyzer
-from scanners.priority_manager import rank
+from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity, AttackVector
 from utils.logger import get_logger
 from argparse import ArgumentParser
 from sys import exit
@@ -147,7 +147,23 @@ async def scan_url_async(
         event_handlers_result = await extractor.extract(session, url, timeout)
 
         logger.info(f"Prioritizing vulnerabilities for {url}...")
-        priority_results = rank(static_results, dynamic_results)
+        priority_manager = PriorityManager()
+        
+        methods = []
+        if 'eval' in static_results or 'eval' in dynamic_results:
+            methods.append(RiskLevel.EVAL)
+        if 'document.write' in static_results or 'document.write' in dynamic_results:
+            methods.append(RiskLevel.DOCUMENT_WRITE)
+        if 'innerHTML' in static_results or 'innerHTML' in dynamic_results:
+            methods.append(RiskLevel.INNER_HTML)
+            
+        priority_results, severity = priority_manager.calculate_optimized_priority(
+            methods=methods,
+            complexity=ExploitComplexity.MEDIUM,
+            attack_vector=AttackVector.URL if 'url' in static_results else None,
+            event_handlers=event_handlers_result.data if event_handlers_result.success else [],
+            dom_results=dynamic_results
+        )
 
         elapsed_time = time() - start_time
         logger.info(f"Analysis completed for {url} in {elapsed_time:.2f} seconds")
@@ -159,7 +175,10 @@ async def scan_url_async(
             "event_handlers": event_handlers_result.data if event_handlers_result.success else {"error": event_handlers_result.message},
             "static_results": static_results,
             "dynamic_results": dynamic_results,
-            "priority_results": priority_results
+            "priority_results": {
+                "score": priority_results,
+                "severity": severity
+            }
         }
 
         await results_queue.put(result)
