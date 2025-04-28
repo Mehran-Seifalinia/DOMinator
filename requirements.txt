@@ -1,6 +1,8 @@
-aiohttp
-beautifulsoup4
-html5lib
-playwright
-requests
-tenacity
+aiohttp>=3.8.0
+beautifulsoup4>=4.12.0
+html5lib>=1.1
+playwright>=1.40.0
+requests>=2.31.0
+tenacity>=8.2.0
+typing-extensions>=4.7.0
+python-dateutil>=2.8.2
