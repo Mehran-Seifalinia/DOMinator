@@ -1,19 +1,37 @@
 import asyncio
-from typing import List, Dict
+from typing import List, Dict, Optional
 from playwright.async_api import async_playwright
 from extractors.event_handler_extractor import EventHandlerExtractor
 from extractors.external_fetcher import ExternalFetcher
 from scanners.priority_manager import PriorityManager
 from utils.logger import get_logger
+from utils.patterns import DANGEROUS_JS_PATTERNS, DANGEROUS_HTML_PATTERNS, get_risk_level
 
 # Get the logger instance from logger.py
 logger = get_logger()
 
+class DynamicAnalysisResult:
+    def __init__(self):
+        self.event_handlers: Dict[str, List[str]] = {}
+        self.dom_xss_risks: List[str] = []
+        self.external_script_risks: List[str] = []
+
+    def to_dict(self) -> Dict:
+        return {
+            "event_handlers": self.event_handlers,
+            "dom_xss_risks": self.dom_xss_risks,
+            "external_script_risks": self.external_script_risks
+        }
+
 class DynamicAnalyzer:
     def __init__(self, html_content: str, external_urls: List[str]):
+        if not html_content or not isinstance(html_content, str):
+            raise ValueError("HTML content must be a non-empty string.")
+        
         self.html_content = html_content
         self.external_urls = external_urls
         self.priority_manager = PriorityManager()
+        self.result = DynamicAnalysisResult()
 
     async def analyze_event_handlers(self) -> Dict[str, List[str]]:
         """Extract and analyze event handlers from HTML"""
@@ -21,7 +39,7 @@ class DynamicAnalyzer:
             extractor = EventHandlerExtractor(self.html_content)
             event_handlers = extractor.extract_event_handlers()
             logger.info(f"Extracted event handlers: {event_handlers}")
-            self.priority_manager.process_results({"event_handlers": event_handlers})
+            self.result.event_handlers = event_handlers
             return event_handlers
         except Exception as e:
             logger.error(f"Error analyzing event handlers: {e}")
@@ -32,10 +50,11 @@ class DynamicAnalyzer:
         try:
             fetcher = ExternalFetcher(self.external_urls)
             await fetcher.fetch_and_process_scripts()
+            self.result.external_script_risks = fetcher.get_risks()
         except Exception as e:
             logger.error(f"Error fetching or processing external scripts: {e}")
 
-    async def analyze_dom_xss_risk(self, page) -> Dict[str, List[str]]:
+    async def analyze_dom_xss_risk(self, page) -> List[str]:
         """Analyze DOM XSS vulnerabilities by checking dangerous attributes and script inclusions"""
         xss_risks = []
         try:
@@ -54,10 +73,8 @@ class DynamicAnalyzer:
             logger.error(f"Error while analyzing DOM XSS risks: {e}")
             return []
 
-    async def execute_in_browser(self) -> Dict[str, List[str]]:
+    async def execute_in_browser(self) -> List[str]:
         """Execute HTML in a real browser to detect dynamic vulnerabilities"""
-        results = {}
-
         try:
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=True)
@@ -68,15 +85,13 @@ class DynamicAnalyzer:
                         
                         # First analyze DOM XSS risks
                         dom_xss_results = await self.analyze_dom_xss_risk(page)
-                        results["dom_xss_risks"] = dom_xss_results
-                        self.priority_manager.process_results({"dom_results": dom_xss_results})
+                        self.result.dom_xss_risks = dom_xss_results
+                        return dom_xss_results
         except Exception as e:
             logger.error(f"Error during dynamic analysis in browser: {e}")
+            return []
 
-        logger.info(f"Dynamic analysis results: {results}")
-        return results
-
-    async def run_analysis(self) -> None:
+    async def run_analysis(self) -> DynamicAnalysisResult:
         """Run the full dynamic analysis process"""
         logger.info("Starting dynamic analysis...")
     
@@ -87,17 +102,18 @@ class DynamicAnalyzer:
             dom_results_task = self.execute_in_browser()
     
             # Gathering all the results
-            event_handlers, _, dom_results = await asyncio.gather(
-                event_handlers_task, external_scripts_task, dom_results_task
+            await asyncio.gather(
+                event_handlers_task,
+                external_scripts_task,
+                dom_results_task
             )
     
-            logger.info(f"Dynamic analysis results: Event Handlers: {event_handlers}, DOM XSS Risks: {dom_results}")
-            
-            # Process results or return them if needed
-            # Optionally, you can now call self.priority_manager.process_results() to manage results
+            logger.info(f"Dynamic analysis completed successfully")
+            return self.result
     
         except Exception as e:
             logger.error(f"Error during full analysis: {e}")
+            return self.result
 
 if __name__ == "__main__":
     html_content = "<html><body><div onclick='alert(\"Hello\");'></div></body></html>"
