@@ -1,7 +1,8 @@
 import json
 from bs4 import BeautifulSoup
 from utils.logger import get_logger
-from typing import List, Dict
+from typing import List, Dict, Optional
+from dataclasses import dataclass
 
 logger = get_logger(__name__)
 
@@ -53,20 +54,22 @@ EVENT_HANDLER_ATTRIBUTES = [
     'onbeforeinstallprompt', 'onunload', 'onbeforeunload', 'onpagehide', 'onpageshow'
 ]
 
+@dataclass
 class EventHandler:
-    def __init__(self, tag: str, attribute: str, handler: str):
-        if not isinstance(tag, str) or not tag.strip():
-            raise ValueError("Tag must be a non-empty string.")
-        if not isinstance(attribute, str) or not attribute.strip():
-            raise ValueError("Attribute must be a non-empty string.")
-        if not isinstance(handler, str) or not handler.strip():
-            raise ValueError("Handler must be a non-empty string.")
-        self.tag = tag
-        self.attribute = attribute
-        self.handler = handler
+    tag: str
+    attribute: str
+    handler: str
+    line: Optional[int] = None
+    column: Optional[int] = None
 
-    def __repr__(self) -> str:
-        return f"<EventHandler tag={self.tag} attribute={self.attribute}>"
+    def to_dict(self) -> Dict:
+        return {
+            'tag': self.tag,
+            'attribute': self.attribute,
+            'handler': self.handler,
+            'line': self.line,
+            'column': self.column
+        }
 
 class EventHandlerExtractor:
     def __init__(self, html: str):
@@ -84,42 +87,52 @@ class EventHandlerExtractor:
             logger.error(f"Error parsing HTML: {e}")
             raise ValueError(f"Error parsing HTML: {e}")
 
-    def extract_event_handlers(self) -> List[EventHandler]:
+    def extract_event_handlers(self) -> Dict[str, List[EventHandler]]:
         """
         Extract event handlers from HTML attributes.
-        :return: A list of EventHandler objects.
+        :return: A dictionary mapping event types to lists of EventHandler objects.
         """
-        event_handlers = []
-        
-        # Create a set from EVENT_HANDLER_ATTRIBUTES for faster lookups
-        handler_attributes = set(EVENT_HANDLER_ATTRIBUTES)
+        event_handlers: Dict[str, List[EventHandler]] = {}
         
         # Iterate over all tags in the HTML
         for tag in self.soup.find_all(True):  # True means all tags
-            # Check if any event handler attributes are in the tag
-            event_attrs = set(tag.attrs).intersection(handler_attributes)
-            for attribute in event_attrs:
-                handler = tag[attribute].strip()
-                if handler:
-                    event_handlers.append(EventHandler(tag=str(tag.name), attribute=attribute, handler=handler))
-                    logger.debug(f"Extracted handler from tag: {tag.name}, attribute: {attribute}")
+            # Get the line number if available
+            line = tag.sourceline if hasattr(tag, 'sourceline') else None
+            column = tag.sourcepos if hasattr(tag, 'sourcepos') else None
+            
+            # Check all attributes of the tag
+            for attr_name, attr_value in tag.attrs.items():
+                if attr_name.startswith('on'):
+                    if attr_name not in event_handlers:
+                        event_handlers[attr_name] = []
+                    
+                    handler = EventHandler(
+                        tag=str(tag.name),
+                        attribute=attr_name,
+                        handler=str(attr_value),
+                        line=line,
+                        column=column
+                    )
+                    event_handlers[attr_name].append(handler)
+                    logger.debug(f"Extracted handler from tag: {tag.name}, attribute: {attr_name}")
         
         # Log results
         if not event_handlers:
             logger.info("No event handlers found.")
         else:
-            logger.info(f"Successfully extracted {len(event_handlers)} event handlers.")
-            if len(event_handlers) > 100:
+            total_handlers = sum(len(handlers) for handlers in event_handlers.values())
+            logger.info(f"Successfully extracted {total_handlers} event handlers.")
+            if total_handlers > 100:
                 logger.warning("More than 100 event handlers found.")
                 # Optionally log some details for debugging
-                logger.debug(f"Extracted handlers: {event_handlers[:5]}...")  # First 5 handlers as a sample
+                logger.debug(f"First 5 handlers: {list(event_handlers.items())[:5]}")
         
         return event_handlers
 
-    def to_json(self, event_handlers: List[EventHandler]) -> str:
+    def to_json(self, event_handlers: Dict[str, List[EventHandler]]) -> str:
         """
         Convert event handlers to JSON format.
-        :param event_handlers: List of EventHandler objects to convert.
+        :param event_handlers: Dictionary of event handlers to convert.
         :return: A JSON string representing the event handlers.
         """
         if not event_handlers:
@@ -128,20 +141,11 @@ class EventHandlerExtractor:
         
         try:
             # Convert event handlers to JSON format
-            return json.dumps([self.event_handler_to_dict(eh) for eh in event_handlers], indent=4)
+            json_data = {
+                event_type: [handler.to_dict() for handler in handlers]
+                for event_type, handlers in event_handlers.items()
+            }
+            return json.dumps(json_data, indent=4)
         except (TypeError, ValueError) as e:
             logger.error(f"Error converting event handlers to JSON: {e}")
             raise
-
-    @staticmethod
-    def event_handler_to_dict(event_handler: EventHandler) -> Dict:
-        """
-        Convert EventHandler object to dictionary.
-        :param event_handler: The EventHandler object to convert.
-        :return: A dictionary representation of the EventHandler.
-        """
-        return {
-            'tag': event_handler.tag or '',
-            'attribute': event_handler.attribute or '',
-            'handler': event_handler.handler or ''
-        }
