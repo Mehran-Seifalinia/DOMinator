@@ -4,10 +4,11 @@ DOMinator - A DOM XSS Scanner Tool
 Main entry point for the application that coordinates scanning and analysis.
 """
 
-from asyncio import Queue, gather, run
+from asyncio import Queue, gather, run, Semaphore
 from aiohttp import ClientSession, ClientTimeout, ClientError
 from json import dump, dumps
 from time import time
+from bs4 import BeautifulSoup
 from extractors.event_handler_extractor import EventHandlerExtractor
 from scanners.static_analyzer import StaticAnalyzer
 from scanners.dynamic_analyzer import DynamicAnalyzer
@@ -87,6 +88,30 @@ async def fetch_html(url: str, session: ClientSession, timeout: int) -> Optional
         logger.error(f"Error fetching {url}: {str(e)}")
         return None
 
+async def extract_external_scripts(html_content: str) -> List[str]:
+    """
+    Extract external JavaScript URLs from HTML content.
+    
+    Args:
+        html_content (str): HTML content to analyze
+        
+    Returns:
+        List[str]: List of external JavaScript URLs
+    """
+    try:
+        soup = BeautifulSoup(html_content, "html.parser")
+        external_scripts = []
+        
+        for script in soup.find_all("script", src=True):
+            if script.get("src"):
+                external_scripts.append(script["src"])
+                
+        logger.info(f"Extracted {len(external_scripts)} external JavaScript URLs")
+        return external_scripts
+    except Exception as e:
+        logger.error(f"Error extracting external scripts: {e}")
+        return []
+
 async def scan_url_async(
     url: str,
     level: int,
@@ -106,23 +131,6 @@ async def scan_url_async(
 ) -> None:
     """
     Scan a single URL for DOM XSS vulnerabilities.
-    
-    Args:
-        url (str): Target URL
-        level (int): Analysis level
-        results_queue (Queue): Queue for storing results
-        timeout (int): Request timeout
-        proxy (Optional[str]): Proxy configuration
-        verbose (bool): Enable verbose output
-        blacklist (Optional[str]): Blacklisted URLs
-        no_external (bool): Skip external resources
-        headless (bool): Use headless browser
-        user_agent (Optional[str]): Custom user agent
-        cookie (Optional[str]): Custom cookies
-        max_depth (int): Maximum crawling depth
-        auto_update (bool): Auto-update payloads
-        report_format (str): Output format
-        session (ClientSession): aiohttp client session
     """
     try:
         if blacklist and any(bl_url in url for bl_url in blacklist.split(',')):
@@ -136,12 +144,23 @@ async def scan_url_async(
         if not html_content:
             logger.error(f"Failed to fetch HTML from {url}")
             return
+        
+        # Extract external scripts
+        external_urls = []
+        if not no_external:
+            external_urls = await extract_external_scripts(html_content)
+            logger.info(f"Found {len(external_urls)} external JavaScript files")
 
-        analyzer = DynamicAnalyzer(html_content, external_urls=[])
+        analyzer = DynamicAnalyzer(html_content, external_urls=external_urls)
         dynamic_results = await analyzer.run_analysis()
+        if hasattr(dynamic_results, 'to_dict'):
+            dynamic_results = dynamic_results.to_dict()
 
         logger.info(f"Running static analysis for {url}...")
-        static_results = StaticAnalyzer.static_analyze(url, level)
+        static_analyzer = StaticAnalyzer(html_content)
+        static_results = static_analyzer.analyze()
+        if hasattr(static_results, 'to_dict'):
+            static_results = static_results.to_dict()
 
         extractor = EventHandlerExtractor(html_content)
         event_handlers_result = await extractor.extract(session, url, timeout)
@@ -194,10 +213,6 @@ async def scan_url_async(
 def write_results_to_csv(results: List[Dict[str, Any]], output_file: str) -> None:
     """
     Write scan results to a CSV file.
-    
-    Args:
-        results (List[Dict[str, Any]]): Scan results
-        output_file (str): Output file path
     """
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = DictWriter(f, fieldnames=[
@@ -217,6 +232,62 @@ def write_results_to_csv(results: List[Dict[str, Any]], output_file: str) -> Non
                 "priority_results": dumps(result.get("priority_results", {}))
             })
 
+async def write_results_to_html(results: List[Dict[str, Any]], output_file: str) -> None:
+    """
+    Write scan results to an HTML file.
+    """
+    html_template = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOMinator Scan Results</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+        h1 { color: #333; }
+        .result { margin-bottom: 20px; border: 1px solid #ddd; padding: 15px; border-radius: 5px; }
+        .url { font-weight: bold; font-size: 18px; }
+        .status-completed { color: green; }
+        .status-error { color: red; }
+        .details { margin-top: 10px; }
+        .severity-high { color: red; font-weight: bold; }
+        .severity-medium { color: orange; }
+        .severity-low { color: blue; }
+    </style>
+</head>
+<body>
+    <h1>DOMinator Scan Results</h1>
+    <div class="results">
+        {{RESULTS}}
+    </div>
+</body>
+</html>"""
+    
+    results_html = ""
+    for result in results:
+        status_class = "status-completed" if result.get("status") == "Completed" else "status-error"
+        severity = result.get("priority_results", {}).get("severity", "Unknown")
+        severity_class = f"severity-{severity.lower()}" if severity in ["High", "Medium", "Low"] else ""
+        
+        result_html = f"""
+        <div class="result">
+            <div class="url">{result.get("url", "N/A")}</div>
+            <div class="status {status_class}">Status: {result.get("status", "N/A")}</div>
+            <div class="elapsed">Time: {result.get("elapsed_time", 0):.2f}s</div>
+            <div class="severity {severity_class}">Severity: {severity}</div>
+            <div class="details">
+                <pre>{dumps(result, indent=2)}</pre>
+            </div>
+        </div>
+        """
+        
+        results_html += result_html
+    
+    full_html = html_template.replace("{{RESULTS}}", results_html)
+    
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(full_html)
+
 async def main() -> None:
     """
     Main entry point for the application.
@@ -234,7 +305,7 @@ async def main() -> None:
     if args.list_url:
         try:
             with open(args.list_url, 'r') as f:
-                args.url = [line.strip() for line in f.readlines()]
+                args.url = [line.strip() for line in f.readlines() if line.strip()]
         except FileNotFoundError:
             exit(f"Error: File {args.list_url} not found.")
 
@@ -243,10 +314,13 @@ async def main() -> None:
 
     args.timeout = validate_timeout(args.timeout)
     results_queue = Queue()
-
-    async with ClientSession() as session:
-        tasks = [
-            scan_url_async(
+    
+    # Limit concurrent threads
+    semaphore = Semaphore(args.threads)
+    
+    async def limited_scan_url(url):
+        async with semaphore:
+            await scan_url_async(
                 url, args.level, results_queue, args.timeout,
                 args.proxy, args.verbose, args.blacklist,
                 args.no_external, args.headless,
@@ -254,19 +328,28 @@ async def main() -> None:
                 args.max_depth, args.auto_update,
                 args.report_format, session
             )
-            for url in args.url
-        ]
+
+    async with ClientSession() as session:
+        tasks = [limited_scan_url(url) for url in args.url]
         await gather(*tasks)
 
     results = []
     while not results_queue.empty():
         results.append(await results_queue.get())
 
-    if args.report_format == 'csv' and args.output:
-        write_results_to_csv(results, args.output)
-    elif args.report_format == 'json' and args.output:
-        with open(args.output, 'w', encoding='utf-8') as f:
-            dump(results, f, indent=4)
+    if args.output:
+        if args.report_format == 'csv':
+            write_results_to_csv(results, args.output)
+            print(f"Results written to {args.output} in CSV format")
+        elif args.report_format == 'json':
+            with open(args.output, 'w', encoding='utf-8') as f:
+                dump(results, f, indent=4)
+            print(f"Results written to {args.output} in JSON format")
+        elif args.report_format == 'html':
+            await write_results_to_html(results, args.output)
+            print(f"Results written to {args.output} in HTML format")
+    else:
+        print("No output file specified. Results not saved.")
 
 if __name__ == "__main__":
     run(main())
