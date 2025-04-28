@@ -23,13 +23,15 @@ class DynamicAnalyzer:
     potential DOM XSS vulnerabilities in web applications.
     """
     
-    def __init__(self, html_content: str, external_urls: List[str]) -> None:
+    def __init__(self, html_content: str, external_urls: List[str], headless: bool = True, user_agent: Optional[str] = None) -> None:
         """
         Initialize the DynamicAnalyzer with HTML content and external URLs.
         
         Args:
             html_content (str): The HTML content to analyze
             external_urls (List[str]): List of external URLs to analyze
+            headless (bool): Whether to run browser in headless mode
+            user_agent (Optional[str]): Custom user agent string
             
         Raises:
             ValueError: If HTML content is invalid
@@ -39,6 +41,8 @@ class DynamicAnalyzer:
         
         self.html_content = html_content
         self.external_urls = external_urls
+        self.headless = headless
+        self.user_agent = user_agent
         self.priority_manager = PriorityManager()
         self.result = AnalysisResult()
 
@@ -139,8 +143,12 @@ class DynamicAnalyzer:
         """
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                async with browser.new_context() as context:
+                browser = await p.chromium.launch(headless=self.headless)
+                context_options = {}
+                if self.user_agent:
+                    context_options["user_agent"] = self.user_agent
+                    
+                async with browser.new_context(**context_options) as context:
                     async with context.new_page() as page:
                         logger.info("Executing HTML in a real browser environment...")
                         await page.set_content(self.html_content)
