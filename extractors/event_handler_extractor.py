@@ -127,16 +127,20 @@ class EventHandlerExtractor:
             AnalysisResult: Result of the extraction process
         """
         try:
+            result = AnalysisResult()
+            result.url = url
+            
             event_handlers = self.extract_event_handlers()
-            return AnalysisResult(
-                success=True,
-                data=event_handlers,
-                message="Successfully extracted event handlers"
-            )
+            for event_type, handlers in event_handlers.items():
+                for handler in handlers:
+                    result.add_event_handler(event_type, handler)
+            
+            result.set_completed()
+            return result
+            
         except Exception as e:
             logger.error(f"Error extracting event handlers from {url}: {e}")
-            return AnalysisResult(
-                success=False,
-                data={},
-                message=f"Failed to extract event handlers: {str(e)}"
-            )
+            result = AnalysisResult()
+            result.url = url
+            result.set_error(str(e))
+            return result
