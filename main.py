@@ -1,4 +1,8 @@
-#!/usr/bin/ python3
+#!/usr/bin/python3
+"""
+DOMinator - A DOM XSS Scanner Tool
+Main entry point for the application that coordinates scanning and analysis.
+"""
 
 from asyncio import Queue, gather, run
 from aiohttp import ClientSession, ClientTimeout, ClientError
@@ -6,18 +10,24 @@ from json import dump, dumps
 from time import time
 from extractors.event_handler_extractor import EventHandlerExtractor
 from scanners.static_analyzer import StaticAnalyzer
-from scanners.dynamic_analyzer import analyze as dynamic_analyze
+from scanners.dynamic_analyzer import DynamicAnalyzer
 from scanners.priority_manager import rank
 from utils.logger import get_logger
 from argparse import ArgumentParser
 from sys import exit
 from csv import DictWriter
+from typing import List, Dict, Any, Optional
 
 # Set up logger
 logger = get_logger(__name__)
 
-# Parse command-line arguments
-def parse_args():
+def parse_args() -> ArgumentParser:
+    """
+    Parse command line arguments for the scanner.
+    
+    Returns:
+        ArgumentParser: Parsed command line arguments
+    """
     parser = ArgumentParser(description="DOM XSS Scanner Tool")
     parser.add_argument('-u', '--url', help='Target URL(s)', nargs='+')
     parser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel processing')
@@ -38,14 +48,82 @@ def parse_args():
     parser.add_argument('--auto-update', action='store_true', help='Automatically check and download the latest payloads')
     return parser.parse_args()
 
-# Validate timeout
-def validate_timeout(timeout):
+def validate_timeout(timeout: int) -> int:
+    """
+    Validate the timeout value.
+    
+    Args:
+        timeout (int): Timeout value in seconds
+        
+    Returns:
+        int: Validated timeout value
+        
+    Raises:
+        ValueError: If timeout is not positive
+    """
     if timeout <= 0:
         raise ValueError(f"Invalid timeout value: {timeout}. Timeout must be a positive integer.")
     return timeout
 
-# Scan URL
-async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, blacklist, no_external, headless, user_agent, cookie, max_depth, auto_update, report_format, session):
+async def fetch_html(url: str, session: ClientSession, timeout: int) -> Optional[str]:
+    """
+    Fetch HTML content from a URL.
+    
+    Args:
+        url (str): Target URL
+        session (ClientSession): aiohttp client session
+        timeout (int): Request timeout in seconds
+        
+    Returns:
+        Optional[str]: HTML content if successful, None otherwise
+    """
+    try:
+        async with session.get(url, timeout=timeout) as response:
+            if response.status == 200:
+                return await response.text()
+            logger.error(f"Failed to fetch {url}: HTTP {response.status}")
+            return None
+    except ClientError as e:
+        logger.error(f"Error fetching {url}: {str(e)}")
+        return None
+
+async def scan_url_async(
+    url: str,
+    level: int,
+    results_queue: Queue,
+    timeout: int,
+    proxy: Optional[str],
+    verbose: bool,
+    blacklist: Optional[str],
+    no_external: bool,
+    headless: bool,
+    user_agent: Optional[str],
+    cookie: Optional[str],
+    max_depth: int,
+    auto_update: bool,
+    report_format: str,
+    session: ClientSession
+) -> None:
+    """
+    Scan a single URL for DOM XSS vulnerabilities.
+    
+    Args:
+        url (str): Target URL
+        level (int): Analysis level
+        results_queue (Queue): Queue for storing results
+        timeout (int): Request timeout
+        proxy (Optional[str]): Proxy configuration
+        verbose (bool): Enable verbose output
+        blacklist (Optional[str]): Blacklisted URLs
+        no_external (bool): Skip external resources
+        headless (bool): Use headless browser
+        user_agent (Optional[str]): Custom user agent
+        cookie (Optional[str]): Custom cookies
+        max_depth (int): Maximum crawling depth
+        auto_update (bool): Auto-update payloads
+        report_format (str): Output format
+        session (ClientSession): aiohttp client session
+    """
     try:
         if blacklist and any(bl_url in url for bl_url in blacklist.split(',')):
             logger.info(f"Skipping blacklisted URL: {url}")
@@ -54,20 +132,17 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
         start_time = time()
         logger.info(f"Extracting data from {url}...")
 
-        # Fetch HTML content from the URL
         html_content = await fetch_html(url, session, timeout)
         if not html_content:
             logger.error(f"Failed to fetch HTML from {url}")
             return
 
-        # Initialize the DynamicAnalyzer with the HTML content
         analyzer = DynamicAnalyzer(html_content, external_urls=[])
         dynamic_results = await analyzer.run_analysis()
 
         logger.info(f"Running static analysis for {url}...")
         static_results = StaticAnalyzer.static_analyze(url, level)
 
-        # Extract event handlers
         extractor = EventHandlerExtractor(html_content)
         event_handlers_result = await extractor.extract(session, url, timeout)
 
@@ -97,9 +172,14 @@ async def scan_url_async(url, level, results_queue, timeout, proxy, verbose, bla
             "error_message": str(e)
         })
 
-
-# Write results to CSV
-def write_results_to_csv(results, output_file):
+def write_results_to_csv(results: List[Dict[str, Any]], output_file: str) -> None:
+    """
+    Write scan results to a CSV file.
+    
+    Args:
+        results (List[Dict[str, Any]]): Scan results
+        output_file (str): Output file path
+    """
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = DictWriter(f, fieldnames=[
             'url', 'status', 'elapsed_time',
@@ -118,8 +198,10 @@ def write_results_to_csv(results, output_file):
                 "priority_results": dumps(result.get("priority_results", {}))
             })
 
-# Main function
-async def main():
+async def main() -> None:
+    """
+    Main entry point for the application.
+    """
     args = parse_args()
 
     if not args.url and not args.list_url:
@@ -141,7 +223,6 @@ async def main():
         exit("Error: No URL(s) provided.")
 
     args.timeout = validate_timeout(args.timeout)
-
     results_queue = Queue()
 
     async with ClientSession() as session:
