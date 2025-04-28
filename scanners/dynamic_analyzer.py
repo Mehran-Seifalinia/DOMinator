@@ -23,7 +23,13 @@ class DynamicAnalyzer:
     potential DOM XSS vulnerabilities in web applications.
     """
     
-    def __init__(self, html_content: str, external_urls: List[str], headless: bool = True, user_agent: Optional[str] = None) -> None:
+    def __init__(
+        self, 
+        html_content: str, 
+        external_urls: List[str], 
+        headless: bool = True, 
+        user_agent: Optional[str] = None
+    ) -> None:
         """
         Initialize the DynamicAnalyzer with HTML content and external URLs.
         
