@@ -125,6 +125,10 @@ class EventHandlerExtractor:
             
         Returns:
             AnalysisResult: Result of the extraction process
+            
+        Note:
+            The session and timeout parameters are reserved for future use
+            when implementing remote URL fetching functionality.
         """
         try:
             result = AnalysisResult()
