@@ -1,5 +1,10 @@
+"""
+Patterns Module
+Defines patterns and risk levels for DOM XSS vulnerability detection.
+"""
+
 from re import compile
-from typing import List, Pattern, Set
+from typing import List, Pattern, Set, Dict
 
 # JavaScript dangerous patterns
 DANGEROUS_JS_PATTERNS: List[Pattern] = [
@@ -80,7 +85,7 @@ EVENT_HANDLER_ATTRIBUTES: Set[str] = {
 }
 
 # Risk levels for different patterns
-RISK_LEVELS = {
+RISK_LEVELS: Dict[str, str] = {
     'eval': 'high',
     'Function': 'high',
     'innerHTML': 'medium',
@@ -98,10 +103,22 @@ RISK_LEVELS = {
 def get_risk_level(pattern: str) -> str:
     """
     Get the risk level for a given pattern.
-    :param pattern: The pattern to check
-    :return: Risk level ('high', 'medium', 'low', or 'unknown')
+    
+    Args:
+        pattern (str): The pattern to check
+        
+    Returns:
+        str: Risk level ('high', 'medium', 'low', or 'unknown')
+        
+    Note:
+        This function checks if any of the known risk patterns are present
+        in the given pattern string and returns the corresponding risk level.
     """
-    for key in RISK_LEVELS:
-        if key.lower() in pattern.lower():
-            return RISK_LEVELS[key]
-    return 'unknown' 
+    try:
+        pattern_lower = pattern.lower()
+        for key in RISK_LEVELS:
+            if key.lower() in pattern_lower:
+                return RISK_LEVELS[key]
+        return 'unknown'
+    except Exception as e:
+        return 'unknown' 
