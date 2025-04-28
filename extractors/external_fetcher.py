@@ -75,6 +75,7 @@ class ExternalFetcher:
         self.proxy: Optional[str] = proxy
         self.timeout: int = timeout
         self.semaphore = Semaphore(max_concurrent_requests)
+        self.analysis_results: List[ScriptAnalysisResult] = []  # Store analysis results
 
     async def fetch_script(self, session: ClientSession, url: str) -> Optional[str]:
         """
@@ -179,26 +180,47 @@ class ExternalFetcher:
             logger.error(f"Error processing script from {url}: {e}")
             return None
 
-    async def send_to_static_analyzer(self, script_content: str) -> None:
+    async def send_to_static_analyzer(self, script_content: str, url: str) -> None:
         """
-        Send script content to static analyzer for further analysis.
+        Analyze JavaScript content for potential vulnerabilities.
         
         Args:
-            script_content (str): Script content to analyze
+            script_content (str): JavaScript content to analyze
+            url (str): URL of the script
         """
         try:
-            static_analyzer = StaticAnalyzer(script_content)
-            result = static_analyzer.analyze()
-            logger.info(f"Static analysis result: {result}")
+            # Analyze for event listeners
+            event_listeners = findall(r'\.addEventListener\(["\'](\w+)["\']', script_content)
+            
+            # Analyze for risky functions
+            risky_functions = findall(r'\b(eval|setTimeout|setInterval|Function|document\.write)\b', script_content)
+            
+            # Analyze for potential sources
+            sources = findall(r'\b(getElementById|querySelector|location|cookie)\b', script_content)
+            
+            # Analyze for potential sinks
+            sinks = findall(r'\b(innerHTML|outerHTML|document\.write|eval)\b', script_content)
+            
+            analysis_result = ScriptAnalysisResult(
+                url=url,
+                event_listeners=list(set(event_listeners)),
+                risky_functions=list(set(risky_functions)),
+                sources=list(set(sources)),
+                sinks=list(set(sinks))
+            )
+            
+            self.analysis_results.append(analysis_result)
+            logger.info(f"Static analysis completed for {url}")
+            
         except Exception as e:
-            logger.error(f"Error in static analysis: {e}")
+            logger.error(f"Error in static analysis of script from {url}: {e}")
 
-    async def fetch_and_process_scripts(self) -> None:
+    async def fetch_and_process_scripts(self) -> List[ScriptAnalysisResult]:
         """
         Fetch and process all scripts in parallel.
         
-        This method fetches all scripts concurrently and processes them
-        for potential vulnerabilities.
+        Returns:
+            List[ScriptAnalysisResult]: List of analysis results for all processed scripts
         """
         try:
             async with ClientSession(timeout=ClientTimeout(total=self.timeout)) as session:
@@ -207,14 +229,24 @@ class ExternalFetcher:
 
                 for url, script_content in zip(self.urls, scripts):
                     if script_content:
-                        script_analysis = await self.process_script(script_content, url)
-                        if script_analysis:
-                            await self.send_to_static_analyzer(script_content)
+                        await self.send_to_static_analyzer(script_content, url)
                     else:
                         logger.error(f"No script content fetched for {url}")
+            
+            return self.analysis_results
         
         except Exception as e:
             logger.error(f"Error in fetch_and_process_scripts: {e}")
+            return []
+
+    def get_analysis_results(self) -> List[ScriptAnalysisResult]:
+        """
+        Get all analysis results.
+        
+        Returns:
+            List[ScriptAnalysisResult]: List of all script analysis results
+        """
+        return self.analysis_results
 
 def main() -> None:
     """
