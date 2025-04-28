@@ -6,12 +6,21 @@ Fetches and analyzes external JavaScript files for potential DOM XSS vulnerabili
 from sys import argv
 from asyncio import Lock, gather, run, Semaphore
 from utils.logger import get_logger
-from typing import List, Union, Optional, Dict, Any
+from typing import List, Union, Optional, Dict, Any, Set
 from aiohttp import ClientSession, ClientTimeout
-from re import findall
+from re import findall, Pattern, compile
 from scanners.static_analyzer import StaticAnalyzer
 
 logger = get_logger(__name__)
+
+# Compile regex patterns once for better performance
+PATTERNS = {
+    'event_listeners': compile(r'\.addEventListener\(["\'](\w+)["\']'),
+    'risky_functions': compile(r'\b(eval|setTimeout|setInterval|Function|document\.write)\b'),
+    'sources': compile(r'\b(getElementById|querySelector|getElementsByClassName|getElementsByTagName|getElementsByName|getAttribute|location\.(search|hash|pathname)|document\.(cookie|referrer)|window\.name|localStorage\.getItem|sessionStorage\.getItem|URLSearchParams)\b'),
+    'sinks': compile(r'\b(innerHTML|outerHTML|document\.write|eval|setTimeout|setInterval|Function)\b'),
+    'risky_events': compile(r'\bon\w+\b')
+}
 
 class ScriptAnalysisResult:
     """
@@ -53,12 +62,21 @@ class ScriptAnalysisResult:
             "sinks": self.sinks
         }
 
+    def merge(self, other: 'ScriptAnalysisResult') -> None:
+        """
+        Merge another analysis result into this one.
+        
+        Args:
+            other (ScriptAnalysisResult): Another analysis result to merge
+        """
+        self.event_listeners = list(set(self.event_listeners + other.event_listeners))
+        self.risky_functions = list(set(self.risky_functions + other.risky_functions))
+        self.sources = list(set(self.sources + other.sources))
+        self.sinks = list(set(self.sinks + other.sinks))
+
 class ExternalFetcher:
     """
     A class for fetching and analyzing external JavaScript files.
-    
-    This class provides methods to fetch external scripts and analyze them
-    for potential DOM XSS vulnerabilities.
     """
     
     def __init__(self, urls: List[str], proxy: Optional[str] = None, timeout: int = 10, max_concurrent_requests: int = 5) -> None:
@@ -75,178 +93,108 @@ class ExternalFetcher:
         self.proxy: Optional[str] = proxy
         self.timeout: int = timeout
         self.semaphore = Semaphore(max_concurrent_requests)
-        self.analysis_results: List[ScriptAnalysisResult] = []  # Store analysis results
+        self.analysis_results: Dict[str, ScriptAnalysisResult] = {}  # URL -> Result mapping
+        self._lock = Lock()  # For thread-safe result updates
 
     async def fetch_script(self, session: ClientSession, url: str) -> Optional[str]:
-        """
-        Fetch a script from a URL.
-        
-        Args:
-            session (ClientSession): aiohttp client session
-            url (str): URL to fetch
-            
-        Returns:
-            Optional[str]: Script content if successful, None otherwise
-        """
-        try:
-            if self.proxy:
-                logger.info(f"Using proxy: {self.proxy}")
-                async with session.get(url, timeout=self.timeout, proxy=self.proxy) as response:
+        """Fetch a script from a URL."""
+        async with self.semaphore:  # Limit concurrent requests
+            try:
+                async with session.get(
+                    url,
+                    timeout=self.timeout,
+                    proxy=self.proxy if self.proxy else None
+                ) as response:
                     if response.status == 200:
                         return await response.text()
-                    else:
-                        logger.error(f"Failed to fetch {url}: HTTP {response.status}")
-            else:
-                async with session.get(url, timeout=self.timeout) as response:
-                    if response.status == 200:
-                        return await response.text()
-                    else:
-                        logger.error(f"Failed to fetch {url}: HTTP {response.status}")
-        except Exception as e:
-            logger.error(f"Error fetching {url}: {e}")
-        return None
+                    logger.error(f"Failed to fetch {url}: HTTP {response.status}")
+            except Exception as e:
+                logger.error(f"Error fetching {url}: {e}")
+            return None
 
-    async def process_script(self, content: str, url: str) -> Optional[ScriptAnalysisResult]:
+    async def analyze_script(self, content: str, url: str) -> Optional[ScriptAnalysisResult]:
         """
-        Process a script and analyze it for potential vulnerabilities.
+        Analyze a script for potential vulnerabilities.
         
         Args:
             content (str): Script content to analyze
             url (str): URL of the script
             
         Returns:
-            Optional[ScriptAnalysisResult]: Analysis result if successful, None otherwise
+            Optional[ScriptAnalysisResult]: Analysis result if successful
         """
         try:
-            logger.info(f"Processing script from {url}")
-
             if ".min.js" in url:
                 logger.warning(f"Skipping minified script: {url}")
                 return None
 
-            # Detect event listeners
-            event_listeners = findall(r'\.addEventListener\(["\'](\w+)["\']', content)
-            
-            # Detect risky functions (sinks)
-            risky_sinks_patterns = [
-                r'\beval\b',
-                r'\bsetTimeout\b',
-                r'\bsetInterval\b',
-                r'\bFunction\b',
-                r'\bdocument\.write\b',
-                r'\binnerHTML\s*=',
-                r'\bouterHTML\s*=',
-                r'\bdocument\.createElement\b'
-            ]
-            risky_sinks_regex = '|'.join(risky_sinks_patterns)
-            risky_sinks = findall(risky_sinks_regex, content)
+            # Find all matches using compiled patterns
+            event_listeners = findall(PATTERNS['event_listeners'], content)
+            risky_events = findall(PATTERNS['risky_events'], content)
+            event_listeners.extend(risky_events)
 
-            # Detect risky sources (user input access)
-            source_patterns = [
-                r'\bgetElementById\b',
-                r'\bgetElementsByClassName\b',
-                r'\bgetElementsByTagName\b',
-                r'\bgetElementsByName\b',
-                r'\bgetAttribute\b',
-                r'\blocation\.search\b',
-                r'\blocation\.hash\b',
-                r'\blocation\.pathname\b',
-                r'\bdocument\.cookie\b',
-                r'\bdocument\.referrer\b',
-                r'\bwindow\.name\b',
-                r'\blocalStorage\.getItem\b',
-                r'\bsessionStorage\.getItem\b',
-                r'\bURLSearchParams\b'
-            ]
-            sources_regex = '|'.join(source_patterns)
-            sources = findall(sources_regex, content)
-
-            # Additional events that are considered risky
-            risky_events = findall(r'\bon\w+\b', content)
-            event_listeners += risky_events
-
-            script_analysis = ScriptAnalysisResult(
+            analysis = ScriptAnalysisResult(
                 url=url,
                 event_listeners=list(set(event_listeners)),
-                risky_functions=risky_sinks,
-                sources=list(set(sources)),
-                sinks=risky_sinks
+                risky_functions=list(set(findall(PATTERNS['risky_functions'], content))),
+                sources=list(set(findall(PATTERNS['sources'], content))),
+                sinks=list(set(findall(PATTERNS['sinks'], content)))
             )
 
-            logger.info(f"Analysis result: {script_analysis.to_dict()}")
-            return script_analysis
+            async with self._lock:
+                if url in self.analysis_results:
+                    self.analysis_results[url].merge(analysis)
+                else:
+                    self.analysis_results[url] = analysis
+
+            logger.info(f"Analysis completed for {url}")
+            return analysis
 
         except Exception as e:
-            logger.error(f"Error processing script from {url}: {e}")
+            logger.error(f"Error analyzing script from {url}: {e}")
             return None
-
-    async def send_to_static_analyzer(self, script_content: str, url: str) -> None:
-        """
-        Analyze JavaScript content for potential vulnerabilities.
-        
-        Args:
-            script_content (str): JavaScript content to analyze
-            url (str): URL of the script
-        """
-        try:
-            # Analyze for event listeners
-            event_listeners = findall(r'\.addEventListener\(["\'](\w+)["\']', script_content)
-            
-            # Analyze for risky functions
-            risky_functions = findall(r'\b(eval|setTimeout|setInterval|Function|document\.write)\b', script_content)
-            
-            # Analyze for potential sources
-            sources = findall(r'\b(getElementById|querySelector|location|cookie)\b', script_content)
-            
-            # Analyze for potential sinks
-            sinks = findall(r'\b(innerHTML|outerHTML|document\.write|eval)\b', script_content)
-            
-            analysis_result = ScriptAnalysisResult(
-                url=url,
-                event_listeners=list(set(event_listeners)),
-                risky_functions=list(set(risky_functions)),
-                sources=list(set(sources)),
-                sinks=list(set(sinks))
-            )
-            
-            self.analysis_results.append(analysis_result)
-            logger.info(f"Static analysis completed for {url}")
-            
-        except Exception as e:
-            logger.error(f"Error in static analysis of script from {url}: {e}")
 
     async def fetch_and_process_scripts(self) -> List[ScriptAnalysisResult]:
         """
         Fetch and process all scripts in parallel.
         
         Returns:
-            List[ScriptAnalysisResult]: List of analysis results for all processed scripts
+            List[ScriptAnalysisResult]: List of analysis results
         """
         try:
             async with ClientSession(timeout=ClientTimeout(total=self.timeout)) as session:
-                tasks = [self.fetch_script(session, url) for url in self.urls]
-                scripts = await gather(*tasks)
+                fetch_tasks = [self.fetch_script(session, url) for url in self.urls]
+                scripts = await gather(*fetch_tasks)
 
-                for url, script_content in zip(self.urls, scripts):
-                    if script_content:
-                        await self.send_to_static_analyzer(script_content, url)
-                    else:
-                        logger.error(f"No script content fetched for {url}")
-            
-            return self.analysis_results
-        
+                analysis_tasks = []
+                for url, content in zip(self.urls, scripts):
+                    if content:
+                        analysis_tasks.append(self.analyze_script(content, url))
+                
+                if analysis_tasks:
+                    await gather(*analysis_tasks)
+
+            return list(self.analysis_results.values())
+
         except Exception as e:
             logger.error(f"Error in fetch_and_process_scripts: {e}")
-            return []
+            return list(self.analysis_results.values())  # Return any results we have
 
     def get_analysis_results(self) -> List[ScriptAnalysisResult]:
+        """Get all analysis results."""
+        return list(self.analysis_results.values())
+
+    def get_result_for_url(self, url: str) -> Optional[ScriptAnalysisResult]:
         """
-        Get all analysis results.
+        Get analysis result for a specific URL.
         
+        Args:
+            url (str): URL to get results for
+            
         Returns:
-            List[ScriptAnalysisResult]: List of all script analysis results
+            Optional[ScriptAnalysisResult]: Analysis result if found
         """
-        return self.analysis_results
+        return self.analysis_results.get(url)
 
 def main() -> None:
     """
