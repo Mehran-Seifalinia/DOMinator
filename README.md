@@ -36,12 +36,12 @@ playwright install
 
 Basic usage:
 ```bash
-python main.py -u https://example.com
+python dominator.py -u https://example.com
 ```
 
 Advanced options:
 ```bash
-python main.py -u https://example.com -l 3 -t 4 -o results.json -r json --headless
+python dominator.py -u https://example.com -l 3 -t 4 -o results.json -r json --headless
 ```
 
 ### Command Line Arguments
@@ -82,7 +82,7 @@ DOMinator/
 │   ├── logger.py
 │   ├── patterns.py
 │   └── payloads.py
-├── main.py
+├── dominator.py
 ├── requirements.txt
 └── README.md
 ```
