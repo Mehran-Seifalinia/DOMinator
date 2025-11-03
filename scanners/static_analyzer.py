@@ -3,14 +3,17 @@ Static Analyzer Module
 Performs static analysis of HTML content to detect potential DOM XSS vulnerabilities.
 """
 
-from typing import List, Dict, Optional, Any
-from scanners.priority_manager import PriorityManager
+from typing import List
+from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity
 from extractors.html_parser import ScriptExtractor
 from utils.logger import get_logger
 from utils.patterns import DANGEROUS_JS_PATTERNS, DANGEROUS_HTML_PATTERNS, get_risk_level
 from utils.analysis_result import AnalysisResult, Occurrence
 
 logger = get_logger(__name__)
+
+# Maximum allowed HTML size in bytes to prevent memory issues
+MAX_HTML_SIZE = 10 * 1024 * 1024  # 10 MB
 
 class StaticAnalyzer:
     """
@@ -28,14 +31,19 @@ class StaticAnalyzer:
             html (str): The HTML content to analyze
             
         Raises:
-            ValueError: If HTML content is invalid
+            ValueError: If HTML content is invalid or too large
         """
-        if not html or not isinstance(html, str) or not html.strip():
+        if not isinstance(html, str) or not html.strip():
             raise ValueError("Invalid input: HTML content must be a non-empty string.")
+        
+        if len(html) > MAX_HTML_SIZE:
+            logger.error(f"HTML content exceeds maximum size ({MAX_HTML_SIZE} bytes).")
+            raise ValueError("HTML content is too large.")
         
         self.extractor = ScriptExtractor(html)
         self.html = html
         self.result = AnalysisResult()
+        self.priority_manager = PriorityManager()
 
     def detect_dangerous_patterns(self) -> None:
         """
@@ -46,34 +54,50 @@ class StaticAnalyzer:
         and HTML element attributes.
         """
         # Analyze inline scripts
-        for line_num, script in enumerate(self.extractor.inline_scripts, start=1):
+        inline_scripts = self.extractor.extract_inline_scripts()
+        for line_num, script in enumerate(inline_scripts, start=1):
             for pattern in DANGEROUS_JS_PATTERNS:
                 for match in pattern.finditer(script):
-                    risk_level = get_risk_level(match.group())
-                    priority = PriorityManager.calculate_optimized_priority(risk_level)
+                    risk_level_str = get_risk_level(match.group())
+                    try:
+                        risk_level = RiskLevel(risk_level_str.upper())  # Convert to Enum if possible
+                    except ValueError:
+                        risk_level = RiskLevel.INNER_HTML  # Default fallback
+                    priority, _ = self.priority_manager.calculate_optimized_priority(
+                        methods=[risk_level],
+                        complexity=ExploitComplexity.MEDIUM  # Default complexity
+                    )
                     occurrence: Occurrence = {
                         "line": line_num,
                         "column": match.start(),
                         "pattern": match.group(),
                         "context": script[max(0, match.start()-20):match.end()+20],
-                        "risk_level": risk_level,
+                        "risk_level": risk_level_str,
                         "priority": priority,
                         "source": "static"
                     }
                     self.result.add_static_occurrence(occurrence)
     
         # Analyze HTML elements
-        for tag, attr, value, line in self.extractor.dangerous_html_elements:
+        dangerous_elements = self.extractor.get_dangerous_html_elements()
+        for tag, attr, value, line in dangerous_elements:
             for pattern in DANGEROUS_HTML_PATTERNS:
                 if pattern.search(attr) or pattern.search(value):
-                    risk_level = get_risk_level(attr)
-                    priority = PriorityManager.calculate_optimized_priority(risk_level)
+                    risk_level_str = get_risk_level(attr)
+                    try:
+                        risk_level = RiskLevel(risk_level_str.upper())  # Convert to Enum if possible
+                    except ValueError:
+                        risk_level = RiskLevel.INNER_HTML  # Default fallback
+                    priority, _ = self.priority_manager.calculate_optimized_priority(
+                        methods=[risk_level],
+                        complexity=ExploitComplexity.MEDIUM  # Default complexity
+                    )
                     occurrence: Occurrence = {
                         "line": line,
                         "column": 0,
                         "pattern": attr,
-                        "context": f"{tag} {attr}={value[:50]}...",
-                        "risk_level": risk_level,
+                        "context": f"{tag} {attr}={value[:50]}..." if len(value) > 50 else f"{tag} {attr}={value}",
+                        "risk_level": risk_level_str,
                         "priority": priority,
                         "source": "static"
                     }
@@ -93,29 +117,32 @@ class StaticAnalyzer:
         try:
             self.detect_dangerous_patterns()
             self.result.set_completed()
+            logger.info("Static analysis completed successfully.")
             return self.result
         except Exception as e:
-            logger.error(f"Error analyzing scripts: {e}")
+            logger.error(f"Error during static analysis: {str(e)}")
             self.result.set_error(str(e))
             return self.result
 
     @staticmethod
-    def static_analyze(url: str, level: int) -> AnalysisResult:
+    def static_analyze(html_content: str, level: int) -> AnalysisResult:
         """
-        Perform static analysis on a given URL.
+        Perform static analysis on given HTML content.
         
         Args:
-            url (str): The URL to analyze
-            level (int): The analysis level (1-4)
+            html_content (str): The HTML content to analyze
+            level (int): The analysis level (1-4) - currently unused, reserved for future depth control
             
         Returns:
             AnalysisResult: The result of the static analysis
+            
+        Note: This static method assumes html_content is pre-fetched; no network requests are made.
         """
         try:
-            analyzer = StaticAnalyzer(url)
+            analyzer = StaticAnalyzer(html_content)
             return analyzer.analyze()
         except Exception as e:
-            logger.error(f"Error in static analysis of {url}: {e}")
+            logger.error(f"Error in static analysis: {str(e)}")
             result = AnalysisResult()
             result.set_error(str(e))
             return result
