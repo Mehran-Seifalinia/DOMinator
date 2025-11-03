@@ -3,9 +3,9 @@ Priority Manager Module
 Manages and calculates priority levels for detected DOM XSS vulnerabilities.
 """
 
-from utils.logger import get_logger
 from enum import Enum
-from typing import List, Dict, Optional, Any, Tuple, Union
+from typing import List, Dict, Optional, Tuple, Union
+from utils.logger import get_logger
 
 class RiskLevel(Enum):
     """Enumeration of different risk levels in DOM XSS vulnerabilities."""
@@ -19,6 +19,8 @@ class RiskLevel(Enum):
     WEB_SOCKET = "webSocket"
     DOCUMENT_DOMAIN = "document.domain"
     DOCUMENT_REFERRER = "document.referrer"
+    LOCAL_STORAGE = "localStorage"  # Added to fix combination_risk pairs
+    POST_MESSAGE = "postMessage"    # Added to fix combination_risk pairs
 
 class ExploitComplexity(Enum):
     """Enumeration of different exploit complexity levels."""
@@ -77,6 +79,8 @@ class PriorityManager:
             RiskLevel.WEB_SOCKET: {"base": 4, "weight": 1.0},
             RiskLevel.DOCUMENT_DOMAIN: {"base": 7, "weight": 1.4},
             RiskLevel.DOCUMENT_REFERRER: {"base": 6, "weight": 1.3},
+            RiskLevel.LOCAL_STORAGE: {"base": 5, "weight": 1.4},
+            RiskLevel.POST_MESSAGE: {"base": 4, "weight": 1.3},
         }
 
         self.exploit_complexity = {
@@ -125,18 +129,22 @@ class PriorityManager:
             float: Calculated method score
             
         Raises:
-            Exception: If calculation fails
+            ValueError: If invalid RiskLevel is provided
         """
         self.logger.debug("Calculating method score for methods: %s", methods)
         try:
-            score = sum(
-                self.risk_levels[method]["base"] * self.risk_levels[method]["weight"]
-                for method in methods if method in self.risk_levels
-            )
-            self.logger.info("Calculated method score: %d", score)
+            score = 0.0
+            for method in methods:
+                if method not in self.risk_levels:
+                    raise ValueError(f"Invalid RiskLevel: {method}")
+                score += self.risk_levels[method]["base"] * self.risk_levels[method]["weight"]
+            self.logger.info("Calculated method score: %.2f", score)
             return score
+        except ValueError as e:
+            self.logger.error("ValueError in method score calculation: %s", str(e))
+            raise
         except Exception as e:
-            self.logger.error("Error calculating method score: %s", e)
+            self.logger.error("Unexpected error calculating method score: %s", str(e))
             raise
 
     def calculate_complexity_score(self, complexity: ExploitComplexity) -> float:
@@ -150,15 +158,20 @@ class PriorityManager:
             float: Calculated complexity score
             
         Raises:
-            Exception: If calculation fails
+            ValueError: If invalid ExploitComplexity is provided
         """
         self.logger.debug("Calculating complexity score for complexity: %s", complexity)
         try:
-            score = self.exploit_complexity.get(complexity, {"score": 0})["score"]
-            self.logger.info("Calculated complexity score: %d", score)
+            if complexity not in self.exploit_complexity:
+                raise ValueError(f"Invalid ExploitComplexity: {complexity}")
+            score = self.exploit_complexity[complexity]["score"]
+            self.logger.info("Calculated complexity score: %.2f", score)
             return score
+        except ValueError as e:
+            self.logger.error("ValueError in complexity score calculation: %s", str(e))
+            raise
         except Exception as e:
-            self.logger.error("Error calculating complexity score: %s", e)
+            self.logger.error("Unexpected error calculating complexity score: %s", str(e))
             raise
 
     def calculate_attack_vector_score(self, attack_vector: AttackVector) -> float:
@@ -172,16 +185,21 @@ class PriorityManager:
             float: Calculated attack vector score
             
         Raises:
-            Exception: If calculation fails
+            ValueError: If invalid AttackVector is provided
         """
         self.logger.debug("Calculating attack vector score for vector: %s", attack_vector)
         try:
-            data = self.attack_vectors.get(attack_vector)
-            score = (data["risk"] * data["multiplier"]) if data else 0
-            self.logger.info("Calculated attack vector score: %d", score)
+            if attack_vector not in self.attack_vectors:
+                raise ValueError(f"Invalid AttackVector: {attack_vector}")
+            data = self.attack_vectors[attack_vector]
+            score = data["risk"] * data["multiplier"]
+            self.logger.info("Calculated attack vector score: %.2f", score)
             return score
+        except ValueError as e:
+            self.logger.error("ValueError in attack vector score calculation: %s", str(e))
+            raise
         except Exception as e:
-            self.logger.error("Error calculating attack vector score: %s", e)
+            self.logger.error("Unexpected error calculating attack vector score: %s", str(e))
             raise
 
     def calculate_combination_risk(self, methods: List[RiskLevel]) -> float:
@@ -195,18 +213,21 @@ class PriorityManager:
             float: Calculated combination risk score
             
         Raises:
-            Exception: If calculation fails
+            ValueError: If invalid RiskLevel in methods
         """
         self.logger.debug("Calculating combination risk for methods: %s", methods)
         try:
-            risk = sum(
-                risk * 1.2 for pair, risk in self.combination_risk.items()
-                if all(m in methods for m in pair)
-            )
-            self.logger.info("Calculated combination risk: %d", risk)
+            risk = 0.0
+            for pair, pair_risk in self.combination_risk.items():
+                if all(m in methods for m in pair):
+                    risk += pair_risk * 1.2
+            self.logger.info("Calculated combination risk: %.2f", risk)
             return risk
+        except ValueError as e:
+            self.logger.error("ValueError in combination risk calculation: %s", str(e))
+            raise
         except Exception as e:
-            self.logger.error("Error calculating combination risk: %s", e)
+            self.logger.error("Unexpected error calculating combination risk: %s", str(e))
             raise
 
     def calculate_security_mechanisms_impact(self, mechanisms: List[SecurityMechanisms]) -> float:
@@ -220,21 +241,23 @@ class PriorityManager:
             float: Calculated security mechanisms impact
             
         Raises:
-            Exception: If calculation fails
+            ValueError: If invalid SecurityMechanisms provided
         """
         self.logger.debug("Calculating security mechanisms impact for mechanisms: %s", mechanisms)
         try:
-            impact = max(
-                0.1,
-                1 - sum(
-                    self.security_mechanisms.get(m, {"risk_reduction": 0})["risk_reduction"]
-                    for m in mechanisms
-                )
-            )
+            total_reduction = 0.0
+            for m in mechanisms:
+                if m not in self.security_mechanisms:
+                    raise ValueError(f"Invalid SecurityMechanisms: {m}")
+                total_reduction += self.security_mechanisms[m]["risk_reduction"]
+            impact = max(0.1, 1 - total_reduction)
             self.logger.info("Calculated security mechanisms impact: %.2f", impact)
             return impact
+        except ValueError as e:
+            self.logger.error("ValueError in security mechanisms impact calculation: %s", str(e))
+            raise
         except Exception as e:
-            self.logger.error("Error calculating security mechanisms impact: %s", e)
+            self.logger.error("Unexpected error calculating security mechanisms impact: %s", str(e))
             raise
 
     def process_event_handlers(self, event_handlers: List[str]) -> float:
@@ -248,21 +271,26 @@ class PriorityManager:
             float: Calculated event handler score
             
         Raises:
-            Exception: If processing fails
+            ValueError: If processing fails due to invalid data
         """
-        self.logger.debug("Processing event handlers: %s", event_handlers)
+        self.logger.debug("Processing event handlers (truncated): %s", str(event_handlers)[:100])  # Truncate for security
         try:
             methods = []
             for handler in event_handlers:
-                if "onclick" in handler:
+                handler_lower = handler.lower()
+                if "onclick" in handler_lower:
                     methods.append(RiskLevel.DOCUMENT_WRITE)
-                if "onload" in handler:
+                if "onload" in handler_lower:
                     methods.append(RiskLevel.INNER_HTML)
+                # Add more pattern matching as needed for better accuracy
             score = self.calculate_method_score(methods)
-            self.logger.info("Processed event handlers with score: %d", score)
+            self.logger.info("Processed event handlers with score: %.2f", score)
             return score
+        except ValueError as e:
+            self.logger.error("ValueError processing event handlers: %s", str(e))
+            raise
         except Exception as e:
-            self.logger.error("Error processing event handlers: %s", e)
+            self.logger.error("Unexpected error processing event handlers: %s", str(e))
             raise
 
     def process_dom_results(self, dom_results: List[str]) -> float:
@@ -276,19 +304,24 @@ class PriorityManager:
             float: Calculated DOM results score
             
         Raises:
-            Exception: If processing fails
+            ValueError: If processing fails due to invalid data
         """
-        self.logger.debug("Processing DOM results: %s", dom_results)
+        self.logger.debug("Processing DOM results (truncated): %s", str(dom_results)[:100])  # Truncate for security
         try:
             methods = []
             for result in dom_results:
-                if "<script>" in result or "javascript:" in result:
+                result_lower = result.lower()
+                if "<script>" in result_lower or "javascript:" in result_lower:
                     methods.append(RiskLevel.EVAL)
+                # Add more pattern matching as needed for better accuracy
             score = self.calculate_method_score(methods)
-            self.logger.info("Processed DOM results with score: %d", score)
+            self.logger.info("Processed DOM results with score: %.2f", score)
             return score
+        except ValueError as e:
+            self.logger.error("ValueError processing DOM results: %s", str(e))
+            raise
         except Exception as e:
-            self.logger.error("Error processing DOM results: %s", e)
+            self.logger.error("Unexpected error processing DOM results: %s", str(e))
             raise
 
     def calculate_optimized_priority(
@@ -317,21 +350,21 @@ class PriorityManager:
             Tuple[float, str]: Final priority score and severity label
             
         Raises:
-            Exception: If calculation fails
+            ValueError: If invalid inputs are provided
         """
         self.logger.debug("Calculating optimized priority for methods: %s", methods)
         try:
             method_score = self.calculate_method_score(methods)
-            event_handler_score = self.process_event_handlers(event_handlers) if event_handlers else 0
-            dom_result_score = self.process_dom_results(dom_results) if dom_results else 0
+            event_handler_score = self.process_event_handlers(event_handlers or [])
+            dom_result_score = self.process_dom_results(dom_results or [])
             complexity_score = self.calculate_complexity_score(complexity)
-            attack_vector_score = self.calculate_attack_vector_score(attack_vector) if attack_vector else 0
+            attack_vector_score = self.calculate_attack_vector_score(attack_vector) if attack_vector else 0.0
 
             response_data = self.response_types.get(response_type, {"risk": 0, "multiplier": 1}) if response_type else {"risk": 0, "multiplier": 1}
             response_risk = response_data["risk"] * response_data["multiplier"]
 
             combination_risk = self.calculate_combination_risk(methods)
-            security_impact = self.calculate_security_mechanisms_impact(mechanisms) if mechanisms else 1.0
+            security_impact = self.calculate_security_mechanisms_impact(mechanisms or [])
 
             total_score = (
                 method_score + event_handler_score + dom_result_score +
@@ -352,6 +385,9 @@ class PriorityManager:
             self.logger.info("Severity: %s", severity)
 
             return final_priority, severity
+        except ValueError as e:
+            self.logger.error("ValueError calculating optimized priority: %s", str(e))
+            raise
         except Exception as e:
-            self.logger.error("Error calculating optimized priority: %s", e)
+            self.logger.error("Unexpected error calculating optimized priority: %s", str(e))
             raise
