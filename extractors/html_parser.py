@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from utils.logger import get_logger
 from traceback import format_exc
 from html5lib import parse
-from re import compile
+from re import compile, IGNORECASE
 
 logger = get_logger(__name__)
 
@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 MAX_HTML_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Compiled regex for suspicious protocols in attribute values
-SUSPICIOUS_PROTOCOLS = compile(r'^(javascript:|data:|vbscript:)', re.IGNORECASE)
+SUSPICIOUS_PROTOCOLS = compile(r'^(javascript:|data:|vbscript:)', IGNORECASE)
 
 class ScriptExtractor:
     """
