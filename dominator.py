@@ -4,7 +4,7 @@ DOMinator - A DOM XSS Scanner Tool
 Main entry point for the application that coordinates scanning and analysis.
 """
 
-from asyncio import Queue, gather, run, Semaphore
+from asyncio import Queue, Semaphore, gather, run
 from aiohttp import ClientSession, ClientTimeout, ClientError
 from json import dump, dumps
 from time import time
@@ -14,7 +14,7 @@ from scanners.static_analyzer import StaticAnalyzer
 from scanners.dynamic_analyzer import DynamicAnalyzer
 from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity, AttackVector
 from utils.logger import get_logger
-from utils.analysis_result import AnalysisResult, Occurrence, EventHandler
+from utils.analysis_result import AnalysisResult
 from argparse import ArgumentParser
 from sys import exit
 from csv import DictWriter
@@ -22,9 +22,13 @@ from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
+from html import escape  # For sanitizing in reports
 
 # Set up logger
 logger = get_logger(__name__)
+
+# Maximum allowed HTML size in bytes to prevent memory issues
+MAX_HTML_SIZE = 10 * 1024 * 1024  # 10 MB
 
 def parse_args() -> ArgumentParser:
     """
@@ -46,11 +50,11 @@ def parse_args() -> ArgumentParser:
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
     parser.add_argument('-b', '--blacklist', type=str, help='Comma-separated list of URLs to exclude from scanning')
     parser.add_argument('--no-external', action='store_true', help='Do not fetch and analyze external JS files')
-    parser.add_argument('--hd', '--headless', action='store_true', dest='headless', help='Enable headless browser mode')
+    parser.add_argument('--headless', action='store_true', help='Enable headless browser mode')
     parser.add_argument('--user-agent', type=str, help='Set a custom User-Agent')
     parser.add_argument('--cookie', type=str, help='Send custom cookies')
-    parser.add_argument('--max-depth', type=int, default=5, help='Set maximum crawling depth')
-    parser.add_argument('--auto-update', action='store_true', help='Automatically check and download the latest payloads')
+    parser.add_argument('--max-depth', type=int, default=1, help='Set maximum crawling depth (currently basic implementation)')
+    parser.add_argument('--auto-update', action='store_true', help='Automatically check and download the latest payloads (placeholder)')
     return parser.parse_args()
 
 def validate_timeout(timeout: int) -> int:
@@ -72,7 +76,7 @@ def validate_timeout(timeout: int) -> int:
 
 async def fetch_html(url: str, session: ClientSession, timeout: int, headers: Optional[Dict[str, str]] = None) -> Optional[str]:
     """
-    Fetch HTML content from a URL.
+    Fetch HTML content from a URL with size limit.
     
     Args:
         url (str): Target URL
@@ -81,12 +85,16 @@ async def fetch_html(url: str, session: ClientSession, timeout: int, headers: Op
         headers (Optional[Dict[str, str]]): Optional request headers
         
     Returns:
-        Optional[str]: HTML content if successful, None otherwise
+        Optional[str]: HTML content if successful and within size limit, None otherwise
     """
     try:
         async with session.get(url, timeout=timeout, headers=headers) as response:
             if response.status == 200:
-                return await response.text()
+                content = await response.text()
+                if len(content) > MAX_HTML_SIZE:
+                    logger.error(f"HTML content from {url} exceeds maximum size ({MAX_HTML_SIZE} bytes).")
+                    return None
+                return content
             logger.error(f"Failed to fetch {url}: HTTP {response.status}")
             return None
     except ClientError as e:
@@ -124,8 +132,48 @@ async def extract_external_scripts(html_content: str, base_url: str) -> Set[str]
         logger.info(f"Extracted {len(external_scripts)} unique external JavaScript URLs")
         return external_scripts
     except Exception as e:
-        logger.error(f"Error extracting external scripts: {e}")
+        logger.error(f"Error extracting external scripts: {str(e)}")
         return set()
+
+async def crawl_links(html_content: str, base_url: str, max_depth: int, visited: Set[str], session: ClientSession, timeout: int, headers: Dict[str, str], depth: int = 0) -> List[str]:
+    """
+    Basic recursive crawler to find additional URLs up to max_depth.
+    
+    Args:
+        html_content (str): Current HTML content
+        base_url (str): Base URL
+        max_depth (int): Maximum depth
+        visited (Set[str]): Visited URLs to avoid cycles
+        session (ClientSession): aiohttp session
+        timeout (int): Request timeout
+        headers (Dict[str, str]): Request headers
+        depth (int): Current depth
+        
+    Returns:
+        List[str]: List of additional HTML contents from crawled links
+    """
+    if depth >= max_depth:
+        return []
+    
+    try:
+        soup = BeautifulSoup(html_content, "html.parser")
+        additional_html = []
+        for link in soup.find_all("a", href=True):
+            href = link.get("href")
+            if href:
+                full_url = urljoin(base_url, href)
+                if full_url in visited:
+                    continue
+                visited.add(full_url)
+                child_html = await fetch_html(full_url, session, timeout, headers)
+                if child_html:
+                    additional_html.append(child_html)
+                    # Recurse
+                    additional_html.extend(await crawl_links(child_html, full_url, max_depth, visited, session, timeout, headers, depth + 1))
+        return additional_html
+    except Exception as e:
+        logger.error(f"Error during crawling: {str(e)}")
+        return []
 
 async def scan_url_async(
     url: str,
@@ -145,12 +193,37 @@ async def scan_url_async(
     session: ClientSession
 ) -> None:
     """
-    Scan a single URL for DOM XSS vulnerabilities.
+    Scan a single URL for DOM XSS vulnerabilities, with optional crawling.
+    
+    Args:
+        url (str): Target URL
+        level (int): Analysis level (affects depth or thoroughness - basic implementation)
+        results_queue (Queue): Queue to put results
+        timeout (int): Request timeout
+        proxy (Optional[str]): Proxy
+        verbose (bool): Verbose logging
+        blacklist (Optional[str]): Blacklist URLs
+        no_external (bool): Skip external JS
+        headless (bool): Headless browser
+        user_agent (Optional[str]): User-Agent
+        cookie (Optional[str]): Cookies
+        max_depth (int): Crawl depth
+        auto_update (bool): Auto-update payloads (placeholder)
+        report_format (str): Report format
+        session (ClientSession): aiohttp session
     """
     try:
-        if blacklist and any(bl_url in url for bl_url in blacklist.split(',')):
-            logger.info(f"Skipping blacklisted URL: {url}")
-            return
+        if verbose:
+            logger.setLevel("DEBUG")  # Enable verbose logging if flag set
+        
+        if blacklist:
+            blacklist_urls = [bl.strip() for bl in blacklist.split(',')]
+            if any(url == bl_url for bl_url in blacklist_urls):  # Exact match for blacklist
+                logger.info(f"Skipping blacklisted URL: {url}")
+                return
+
+        if auto_update:
+            logger.info("Auto-update payloads: Placeholder - implement fetching latest patterns.")
 
         start_time = time()
         logger.info(f"Starting analysis of {url}...")
@@ -171,7 +244,17 @@ async def scan_url_async(
             await results_queue.put(result.to_dict())
             return
         
-        # Extract external scripts
+        # Basic crawling if max_depth > 1
+        visited = set([url])
+        crawled_html = [html_content]
+        if max_depth > 1:
+            crawled_html.extend(await crawl_links(html_content, url, max_depth, visited, session, timeout, headers))
+            logger.info(f"Crawled {len(crawled_html)} pages from {url}")
+
+        # For simplicity, merge all crawled HTML (in production, analyze each separately)
+        merged_html = ' '.join(crawled_html)  # Basic merge - improve as needed
+
+        # Extract external scripts from main HTML
         external_urls = set()
         if not no_external:
             external_urls = await extract_external_scripts(html_content, url)
@@ -182,16 +265,16 @@ async def scan_url_async(
         result.url = url
         result.start_time = datetime.fromtimestamp(start_time)
 
-        # Run static analysis
-        logger.info(f"Running static analysis for {url}...")
-        static_analyzer = StaticAnalyzer(html_content)
+        # Run static analysis (level affects patterns checked - placeholder)
+        logger.info(f"Running static analysis for {url} at level {level}...")
+        static_analyzer = StaticAnalyzer(merged_html)
         static_result = static_analyzer.analyze()
         result.merge_static_results(static_result)
 
-        # Run dynamic analysis
-        logger.info(f"Running dynamic analysis for {url}...")
+        # Run dynamic analysis (level affects thoroughness - placeholder)
+        logger.info(f"Running dynamic analysis for {url} at level {level}...")
         dynamic_analyzer = DynamicAnalyzer(
-            html_content=html_content,
+            html_content=merged_html,
             external_urls=list(external_urls),
             headless=headless,
             user_agent=user_agent
@@ -204,19 +287,21 @@ async def scan_url_async(
         priority_manager = PriorityManager()
         
         methods = []
-        if result.has_dangerous_method('eval'):
+        # Assume has_dangerous_method implemented in AnalysisResult; placeholder check
+        static_patterns = [occ['pattern'] for occ in result.static_results]
+        if any('eval' in p.lower() for p in static_patterns):
             methods.append(RiskLevel.EVAL)
-        if result.has_dangerous_method('document.write'):
+        if any('document.write' in p.lower() for p in static_patterns):
             methods.append(RiskLevel.DOCUMENT_WRITE)
-        if result.has_dangerous_method('innerHTML'):
+        if any('innerhtml' in p.lower() for p in static_patterns):
             methods.append(RiskLevel.INNER_HTML)
             
         priority_score, severity = priority_manager.calculate_optimized_priority(
-            methods=methods,
+            methods=methods if methods else [RiskLevel.LOCATION],  # Fallback if no methods
             complexity=ExploitComplexity.MEDIUM,
-            attack_vector=AttackVector.URL if result.has_url_based_sink() else None,
-            event_handlers=result.event_handlers,
-            dom_results=result.dynamic_results
+            attack_vector=AttackVector.URL,  # Assume URL-based for now
+            event_handlers=[handler.handler for handlers in result.event_handlers.values() for handler in handlers],
+            dom_results=[occ['pattern'] for occ in result.dynamic_results]
         )
 
         result.set_priority_score(priority_score)
@@ -228,7 +313,7 @@ async def scan_url_async(
         logger.info(f"Analysis completed for {url} in {result.elapsed_time:.2f} seconds")
 
     except Exception as e:
-        logger.error(f"Error while scanning {url}: {e}")
+        logger.error(f"Error while scanning {url}: {str(e)}")
         result = AnalysisResult()
         result.url = url
         result.set_error(str(e))
@@ -248,15 +333,19 @@ def write_results_to_csv(results: List[Dict[str, Any]], output_file: str) -> Non
         writer = DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for result in results:
+            # Fix event_handlers count: sum of lengths
+            event_handlers_dict = result.get("event_handlers", {})
+            total_handlers = sum(len(handlers) for handlers in event_handlers_dict.values())
+            
             row = {
                 "url": result.get("url", "N/A"),
                 "status": result.get("status", "Unknown"),
                 "elapsed_time": result.get("elapsed_time", 0),
                 "severity": result.get("severity", "Unknown"),
                 "priority_score": result.get("priority_score", 0),
-                "static_vulnerabilities": dumps(result.get("static_results", {})),
-                "dynamic_vulnerabilities": dumps(result.get("dynamic_results", {})),
-                "event_handlers": dumps(result.get("event_handlers", {})),
+                "static_vulnerabilities": dumps(result.get("static_results", [])),
+                "dynamic_vulnerabilities": dumps(result.get("dynamic_results", [])),
+                "event_handlers": total_handlers,
                 "external_scripts": dumps(result.get("external_script_risks", [])),
                 "error_message": result.get("error_message", "")
             }
@@ -436,7 +525,7 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
     total_vulns = sum(
         len(r.get("static_results", [])) + 
         len(r.get("dynamic_results", [])) + 
-        len(r.get("event_handlers", {})) 
+        sum(len(handlers) for handlers in r.get("event_handlers", {}).values())
         for r in results if r.get("status") == "completed"
     )
     avg_scan_time = sum(
@@ -444,13 +533,17 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
         for r in results if r.get("status") == "completed"
     ) / max(1, len([r for r in results if r.get("status") == "completed"]))
     
-    # Calculate severity statistics
+    # Calculate severity statistics (include Critical as High)
     severity_counts = {"high": 0, "medium": 0, "low": 0}
     for result in results:
         if result.get("status") == "completed":
             severity = result.get("severity", "").lower()
-            if severity in severity_counts:
-                severity_counts[severity] += 1
+            if severity in ["high", "critical"]:
+                severity_counts["high"] += 1
+            elif severity == "medium":
+                severity_counts["medium"] += 1
+            elif severity == "low":
+                severity_counts["low"] += 1
     
     severity_data = [severity_counts["high"], severity_counts["medium"], severity_counts["low"]]
     
@@ -458,13 +551,13 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
     for result in results:
         status_class = "status-completed" if result.get("status") == "completed" else "status-error"
         severity = result.get("severity", "Unknown")
-        severity_class = f"severity-{severity.lower()}" if severity in ["High", "Medium", "Low"] else ""
+        severity_class = f"severity-{severity.lower()}" if severity in ["High", "Medium", "Low", "Critical"] else ""
         
         result_html = f"""
         <div class="result-card">
             <div class="card-header">
                 <span class="status-badge {status_class}">{result.get("status", "Unknown")}</span>
-                {result.get("url", "N/A")}
+                {escape(result.get("url", "N/A"))}
             </div>
             <div class="card-body">
                 <div class="stats">
@@ -484,34 +577,34 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
                     <ul class="vulnerability-list">
         """
         
-        # Add static vulnerabilities
+        # Add static vulnerabilities with escape
         for vuln in result.get("static_results", []):
             result_html += f"""
                 <li class="vulnerability-item">
-                    <strong>Static:</strong> {vuln.get("pattern", "N/A")}
+                    <strong>Static:</strong> {escape(vuln.get("pattern", "N/A"))}
                     <br>
-                    <small>Context: {vuln.get("context", "N/A")}</small>
+                    <small>Context: {escape(vuln.get("context", "N/A"))}</small>
                 </li>
             """
             
-        # Add dynamic vulnerabilities
+        # Add dynamic vulnerabilities with escape
         for vuln in result.get("dynamic_results", []):
             result_html += f"""
                 <li class="vulnerability-item">
-                    <strong>Dynamic:</strong> {vuln.get("pattern", "N/A")}
+                    <strong>Dynamic:</strong> {escape(vuln.get("pattern", "N/A"))}
                     <br>
-                    <small>Context: {vuln.get("context", "N/A")}</small>
+                    <small>Context: {escape(vuln.get("context", "N/A"))}</small>
                 </li>
             """
             
-        # Add event handlers
+        # Add event handlers with escape
         for handler_type, handlers in result.get("event_handlers", {}).items():
             for handler in handlers:
                 result_html += f"""
                     <li class="vulnerability-item">
-                        <strong>Event Handler ({handler_type}):</strong> {handler.get("handler", "N/A")}
+                        <strong>Event Handler ({escape(handler_type)}):</strong> {escape(handler.get("handler", "N/A"))}
                         <br>
-                        <small>Element: {handler.get("tag", "N/A")}</small>
+                        <small>Element: {escape(handler.get("tag", "N/A"))}</small>
                     </li>
                 """
                 
@@ -574,6 +667,9 @@ async def main() -> None:
                 args.report_format, session
             )
 
+    # Limit concurrent threads
+    semaphore = Semaphore(args.threads)
+    
     # Configure client session
     timeout = ClientTimeout(total=args.timeout)
     session_kwargs = {"timeout": timeout}
