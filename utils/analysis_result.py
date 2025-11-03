@@ -4,7 +4,7 @@ Defines data structures and methods for storing and managing analysis results.
 """
 
 from typing import List, Dict, Optional, TypedDict, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime
 
 class Occurrence(TypedDict):
@@ -18,7 +18,7 @@ class Occurrence(TypedDict):
         context (str): Context around the occurrence
         risk_level (str): Risk level of the occurrence
         priority (str): Priority level of the occurrence
-        source (str): Source of the occurrence ('static', 'dynamic', or 'event_handler')
+        source (str): Source of the occurrence ('static', 'dynamic', 'external', or 'event_handler')
     """
     line: Optional[int]
     column: Optional[int]
@@ -57,15 +57,7 @@ class EventHandler:
         Returns:
             Dict[str, Any]: Dictionary representation of the event handler
         """
-        return {
-            'tag': self.tag,
-            'attribute': self.attribute,
-            'handler': self.handler,
-            'line': self.line,
-            'column': self.column,
-            'risk_level': self.risk_level,
-            'priority': self.priority
-        }
+        return asdict(self)
 
 class AnalysisResult:
     """
@@ -86,6 +78,8 @@ class AnalysisResult:
         self.url: Optional[str] = None
         self.status: str = 'pending'  # 'pending', 'completed', 'error'
         self.error_message: Optional[str] = None
+        self.priority_score: Optional[float] = None
+        self.severity: Optional[str] = None
 
     def add_static_occurrence(self, occurrence: Occurrence) -> None:
         """
@@ -93,7 +87,11 @@ class AnalysisResult:
         
         Args:
             occurrence (Occurrence): The occurrence to add
+            
+        Raises:
+            ValueError: If occurrence is invalid (missing required fields)
         """
+        self._validate_occurrence(occurrence)
         occurrence['source'] = 'static'
         self.static_occurrences.append(occurrence)
 
@@ -103,7 +101,11 @@ class AnalysisResult:
         
         Args:
             occurrence (Occurrence): The occurrence to add
+            
+        Raises:
+            ValueError: If occurrence is invalid
         """
+        self._validate_occurrence(occurrence)
         occurrence['source'] = 'dynamic'
         self.dynamic_occurrences.append(occurrence)
 
@@ -125,9 +127,38 @@ class AnalysisResult:
         
         Args:
             occurrence (Occurrence): The occurrence to add
+            
+        Raises:
+            ValueError: If occurrence is invalid
         """
+        self._validate_occurrence(occurrence)
         occurrence['source'] = 'external'
         self.external_script_risks.append(occurrence)
+
+    def _validate_occurrence(self, occurrence: Occurrence) -> None:
+        """Validate required fields in occurrence."""
+        required = {'pattern', 'context', 'risk_level', 'priority', 'source'}
+        missing = required - set(occurrence.keys())
+        if missing:
+            raise ValueError(f"Missing required fields in occurrence: {missing}")
+
+    def merge_from(self, other: 'AnalysisResult') -> None:
+        """
+        Merge results from another AnalysisResult instance.
+        
+        Args:
+            other (AnalysisResult): Another result to merge from
+        """
+        self.static_occurrences.extend(other.static_occurrences)
+        self.dynamic_occurrences.extend(other.dynamic_occurrences)
+        for event_type, handlers in other.event_handlers.items():
+            if event_type not in self.event_handlers:
+                self.event_handlers[event_type] = []
+            self.event_handlers[event_type].extend(handlers)
+        self.external_script_risks.extend(other.external_script_risks)
+        # Update status if other has error
+        if other.status == 'error':
+            self.set_error(other.error_message or "Merged error")
 
     def set_error(self, error_message: str) -> None:
         """
@@ -143,6 +174,14 @@ class AnalysisResult:
         """Set the analysis result to completed state."""
         self.status = 'completed'
 
+    def set_priority_score(self, score: float) -> None:
+        """Set the priority score."""
+        self.priority_score = score
+
+    def set_severity(self, severity: str) -> None:
+        """Set the severity level."""
+        self.severity = severity
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert the analysis result to a dictionary.
@@ -151,8 +190,8 @@ class AnalysisResult:
             Dict[str, Any]: Dictionary representation of the analysis result
         """
         return {
-            'static_occurrences': self.static_occurrences,
-            'dynamic_occurrences': self.dynamic_occurrences,
+            'static_results': self.static_occurrences,
+            'dynamic_results': self.dynamic_occurrences,
             'event_handlers': {
                 event_type: [handler.to_dict() for handler in handlers]
                 for event_type, handlers in self.event_handlers.items()
@@ -161,7 +200,9 @@ class AnalysisResult:
             'analysis_time': self.analysis_time.isoformat(),
             'url': self.url,
             'status': self.status,
-            'error_message': self.error_message
+            'error_message': self.error_message,
+            'priority_score': self.priority_score,
+            'severity': self.severity
         }
 
     def get_all_occurrences(self) -> List[Occurrence]:
@@ -186,7 +227,7 @@ class AnalysisResult:
         """
         return [
             occ for occ in self.get_all_occurrences()
-            if occ['risk_level'] == 'high'
+            if occ['risk_level'] in {'high', 'critical'}  # Flexible for severity levels
         ]
 
     def get_occurrences_by_source(self, source: str) -> List[Occurrence]:
@@ -202,4 +243,4 @@ class AnalysisResult:
         return [
             occ for occ in self.get_all_occurrences()
             if occ['source'] == source
-        ] 
+        ]
