@@ -101,7 +101,7 @@ class DynamicAnalyzer:
                         "pattern": risk,
                         "context": f"From {res.url}: {risk}",
                         "risk_level": get_risk_level(risk),
-                        "priority": self.priority_manager.calculate_optimized_priority(get_risk_level(risk)),
+                        "priority": self.priority_manager.calculate_optimized_priority(get_risk_level(risk, complexity=1)),
                         "source": "external"
                     }
                     self.result.add_external_script_risk(occurrence)
