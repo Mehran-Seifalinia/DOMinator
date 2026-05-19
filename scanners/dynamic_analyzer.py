@@ -12,6 +12,7 @@ from scanners.priority_manager import PriorityManager
 from utils.logger import get_logger
 from utils.patterns import get_risk_level
 from utils.analysis_result import AnalysisResult, Occurrence
+from utils.browser_setup import ensure_browser_installed
 
 logger = get_logger(__name__)
 
@@ -165,6 +166,7 @@ class DynamicAnalyzer:
         Note: Browser is launched with sandbox for security.
         """
         try:
+            await ensure_browser_installed()
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=self.headless, args=['--no-sandbox'] if not self.headless else ['--sandbox'])
                 context_options = {}
@@ -218,15 +220,3 @@ if __name__ == "__main__":
     
     analyzer = DynamicAnalyzer(html_content, external_urls)
     run(analyzer.run_analysis())
-
-async def run_analysis(self) -> AnalysisResult:
-    """Run the complete dynamic analysis pipeline."""
-    try:
-        await self.analyze_event_handlers()
-        await self.fetch_and_analyze_external_scripts()
-        self.result.set_completed()
-        logger.info("Dynamic analysis completed successfully.")
-    except Exception as e:
-        logger.error(f"Error during dynamic analysis: {str(e)}")
-        self.result.set_error(str(e))
-    return self.result
