@@ -268,8 +268,8 @@ async def scan_url_async(
         # Run static analysis (level affects patterns checked - placeholder)
         logger.info(f"Running static analysis for {url} at level {level}...")
         static_analyzer = StaticAnalyzer(merged_html)
-        static_result = static_analyzer.analyze()
-        result.merge_static_results(static_result)
+        static_occurrences = static_analyzer.analyze()
+        result.merge_static_results(static_occurrences)
 
         # Run dynamic analysis (level affects thoroughness - placeholder)
         logger.info(f"Running dynamic analysis for {url} at level {level}...")
@@ -288,7 +288,7 @@ async def scan_url_async(
         
         methods = []
         # Assume has_dangerous_method implemented in AnalysisResult; placeholder check
-        static_patterns = [occ['pattern'] for occ in result.static_results]
+        static_patterns = [occ['pattern'] for occ in result.static_occurrences]
         if any('eval' in p.lower() for p in static_patterns):
             methods.append(RiskLevel.EVAL)
         if any('document.write' in p.lower() for p in static_patterns):
@@ -343,7 +343,7 @@ def write_results_to_csv(results: List[Dict[str, Any]], output_file: str) -> Non
                 "elapsed_time": result.get("elapsed_time", 0),
                 "severity": result.get("severity", "Unknown"),
                 "priority_score": result.get("priority_score", 0),
-                "static_vulnerabilities": dumps(result.get("static_results", [])),
+                "static_vulnerabilities": dumps(result.get("static_occurrences", [])),
                 "dynamic_vulnerabilities": dumps(result.get("dynamic_results", [])),
                 "event_handlers": total_handlers,
                 "external_scripts": dumps(result.get("external_script_risks", [])),
@@ -523,7 +523,7 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
     
     total_urls = len(results)
     total_vulns = sum(
-        len(r.get("static_results", [])) + 
+        len(r.get("static_occurrences", [])) + 
         len(r.get("dynamic_results", [])) + 
         sum(len(handlers) for handlers in r.get("event_handlers", {}).values())
         for r in results if r.get("status") == "completed"
@@ -578,7 +578,7 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
         """
         
         # Add static vulnerabilities with escape
-        for vuln in result.get("static_results", []):
+        for vuln in result.get("static_occurrences", []):
             result_html += f"""
                 <li class="vulnerability-item">
                     <strong>Static:</strong> {escape(vuln.get("pattern", "N/A"))}
