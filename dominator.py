@@ -280,7 +280,7 @@ async def scan_url_async(
             user_agent=user_agent
         )
         dynamic_result = await dynamic_analyzer.run_analysis()
-        result.merge_dynamic_results(dynamic_result)
+        result.merge_dynamic_occurrences(dynamic_result)
 
         # Calculate final risk score and priority
         logger.info(f"Calculating risk scores for {url}...")
@@ -301,7 +301,7 @@ async def scan_url_async(
             complexity=ExploitComplexity.MEDIUM,
             attack_vector=AttackVector.URL,  # Assume URL-based for now
             event_handlers=[handler.handler for handlers in result.event_handlers.values() for handler in handlers],
-            dom_results=[occ['pattern'] for occ in result.dynamic_results]
+            dom_results=[occ['pattern'] for occ in result.dynamic_occurrences]
         )
 
         result.set_priority_score(priority_score)
@@ -344,7 +344,7 @@ def write_results_to_csv(results: List[Dict[str, Any]], output_file: str) -> Non
                 "severity": result.get("severity", "Unknown"),
                 "priority_score": result.get("priority_score", 0),
                 "static_vulnerabilities": dumps(result.get("static_occurrences", [])),
-                "dynamic_vulnerabilities": dumps(result.get("dynamic_results", [])),
+                "dynamic_vulnerabilities": dumps(result.get("dynamic_occurrences", [])),
                 "event_handlers": total_handlers,
                 "external_scripts": dumps(result.get("external_script_risks", [])),
                 "error_message": result.get("error_message", "")
@@ -524,7 +524,7 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
     total_urls = len(results)
     total_vulns = sum(
         len(r.get("static_occurrences", [])) + 
-        len(r.get("dynamic_results", [])) + 
+        len(r.get("dynamic_occurrences", [])) + 
         sum(len(handlers) for handlers in r.get("event_handlers", {}).values())
         for r in results if r.get("status") == "completed"
     )
@@ -588,7 +588,7 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
             """
             
         # Add dynamic vulnerabilities with escape
-        for vuln in result.get("dynamic_results", []):
+        for vuln in result.get("dynamic_occurrences", []):
             result_html += f"""
                 <li class="vulnerability-item">
                     <strong>Dynamic:</strong> {escape(vuln.get("pattern", "N/A"))}
