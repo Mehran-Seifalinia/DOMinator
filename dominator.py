@@ -280,7 +280,7 @@ async def scan_url_async(
             user_agent=user_agent
         )
         dynamic_result = await dynamic_analyzer.run_analysis()
-        result.merge_dynamic_occurrences(dynamic_result)
+        result.merge_dynamic_results(dynamic_result)
 
         # Calculate final risk score and priority
         logger.info(f"Calculating risk scores for {url}...")
