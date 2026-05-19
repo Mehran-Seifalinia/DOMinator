@@ -141,6 +141,14 @@ class AnalysisResult:
         missing = required - set(occurrence.keys())
         if missing:
             raise ValueError(f"Missing required fields in occurrence: {missing}")
+        
+    def merge_static_results(self, other: 'AnalysisResult') -> None:
+        """Merge only static analysis results from another AnalysisResult."""
+        self.static_occurrences.extend(other.static_occurrences)
+
+    def merge_dynamic_results(self, other: 'AnalysisResult') -> None:
+        """Merge only dynamic analysis results from another AnalysisResult."""
+        self.dynamic_occurrences.extend(other.dynamic_occurrences)
 
     def merge_from(self, other: 'AnalysisResult') -> None:
         """
