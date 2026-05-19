@@ -218,3 +218,15 @@ if __name__ == "__main__":
     
     analyzer = DynamicAnalyzer(html_content, external_urls)
     run(analyzer.run_analysis())
+
+async def run_analysis(self) -> AnalysisResult:
+    """Run the complete dynamic analysis pipeline."""
+    try:
+        await self.analyze_event_handlers()
+        await self.fetch_and_analyze_external_scripts()
+        self.result.set_completed()
+        logger.info("Dynamic analysis completed successfully.")
+    except Exception as e:
+        logger.error(f"Error during dynamic analysis: {str(e)}")
+        self.result.set_error(str(e))
+    return self.result
