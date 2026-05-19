@@ -100,7 +100,7 @@ RISK_LEVELS: Dict[str, str] = {
     'window.location': 'high',
 }
 
-def get_risk_level(pattern: str) -> str:
+def get_risk_level(pattern: str, complexity: int = 1) -> str:
     """
     Get the risk level for a given pattern.
     
@@ -115,6 +115,8 @@ def get_risk_level(pattern: str) -> str:
         in the given pattern string and returns the corresponding risk level.
     """
     try:
+        if any(keyword in pattern.lower() for keyword in ['eval', 'innerHTML', 'document.write']):
+            return "critical"
         pattern_lower = pattern.lower()
         for key in RISK_LEVELS:
             if key.lower() in pattern_lower:
