@@ -48,6 +48,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument('-r', '--report-format', type=str, choices=['json', 'html', 'csv'], default='json', help='Choose report format')
     parser.add_argument('-p', '--proxy', type=str, help='Set a proxy for HTTP requests')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
+    parser.add_argument('-q', '--quiet', action='store_true', help='Suppress all info logs, show only final report')
     parser.add_argument('-b', '--blacklist', type=str, help='Comma-separated list of URLs to exclude from scanning')
     parser.add_argument('--no-external', action='store_true', help='Do not fetch and analyze external JS files')
     parser.add_argument('--headless', action='store_true', help='Enable headless browser mode')
@@ -128,7 +129,6 @@ async def extract_external_scripts(html_content: str, base_url: str) -> Set[str]
                 elif not src.startswith(("http://", "https://")):
                     src = urljoin(base_url, src)
                 external_scripts.add(src)
-                
         logger.info(f"Extracted {len(external_scripts)} unique external JavaScript URLs")
         return external_scripts
     except Exception as e:
@@ -258,7 +258,8 @@ async def scan_url_async(
         external_urls = set()
         if not no_external:
             external_urls = await extract_external_scripts(html_content, url)
-            logger.info(f"Found {len(external_urls)} external JavaScript files")
+            if verbose:
+                logger.info(f"Found {len(external_urls)} external JavaScript files")
 
         # Create analysis result
         result = AnalysisResult()
@@ -266,13 +267,15 @@ async def scan_url_async(
         result.start_time = datetime.fromtimestamp(start_time)
 
         # Run static analysis (level affects patterns checked - placeholder)
-        logger.info(f"Running static analysis for {url} at level {level}...")
+        if verbose:        
+            logger.info(f"Running static analysis for {url} at level {level}...")
         static_analyzer = StaticAnalyzer(merged_html)
         static_occurrences = static_analyzer.analyze()
         result.merge_static_results(static_occurrences)
 
         # Run dynamic analysis (level affects thoroughness - placeholder)
-        logger.info(f"Running dynamic analysis for {url} at level {level}...")
+        if verbose:        
+            logger.info(f"Running dynamic analysis for {url} at level {level}...")
         dynamic_analyzer = DynamicAnalyzer(
             html_content=merged_html,
             url=url,
@@ -284,7 +287,8 @@ async def scan_url_async(
         result.merge_dynamic_results(dynamic_result)
 
         # Calculate final risk score and priority
-        logger.info(f"Calculating risk scores for {url}...")
+        if verbose:        
+            logger.info(f"Calculating risk scores for {url}...")
         priority_manager = PriorityManager()
         
         methods = []
@@ -632,8 +636,6 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
     Print a human-readable summary of scan results to the console,
     including vulnerabilities, severity, and basic exploit hints.
     """
-
-    # Helper to generate exploit hint based on pattern
     def get_exploit_hint(pattern: str, context: str = "") -> str:
         pattern_lower = pattern.lower()
         if "eval" in pattern_lower:
@@ -647,15 +649,13 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
         elif "location" in pattern_lower or "window.location" in pattern_lower:
             return "Check if location is set from URL hash/parameter"
         elif "onclick" in pattern_lower or "onerror" in pattern_lower:
-            return "Test event handler with javascript:alert(1) or &quot; onmouseover=alert(1)"
+            return "Test with javascript:alert(1) or &quot; onmouseover=alert(1)"
         else:
             return "Inspect context for injection point; try <script>alert(1)</script>"
 
     def is_false_positive(occ: Dict) -> bool:
-        """Check if an occurrence is a known false positive (Next.js RSC payload)."""
         pattern = occ.get("pattern", "")
         ctx = occ.get("context", "")
-        # Skip occurrences that are inside Next.js RSC serialized scripts
         if "self.__next_f" in pattern or "self.__next_f" in ctx:
             return True
         return False
@@ -671,64 +671,66 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
         score = res.get("priority_score", 0)
         elapsed = res.get("elapsed_time", 0)
 
+        severity_emoji = {
+            "Critical": "🔥", "High": "🔴", "Medium": "🟡", "Low": "🟢", "Informative": "ℹ️"
+        }.get(severity, "⚪")
+
         print(f"\n[{idx}] URL: {url}")
-        print(f"    Status: {status} | Severity: {severity} (Score: {score if score is not None else 'N/A'}) | Time: {elapsed if elapsed else 'N/A'}s")
+        print(f"    Status: {status} | Severity: {severity_emoji} {severity} | Time: {elapsed:.2f}s")
 
         if status == "error":
-            print(f"    Error: {res.get('error_message', 'No details')}")
+            print(f"    ❌ Error: {res.get('error_message', 'No details')}")
             continue
 
-        # Collect all vulnerability occurrences
-        static = res.get("static_results", [])
-        dynamic = res.get("dynamic_results", [])
+
+        static = res.get("static_occurrences", [])
+        dynamic = res.get("dynamic_occurrences", [])
         event_handlers = res.get("event_handlers", {})
         external = res.get("external_script_risks", [])
 
         total = len(static) + len(dynamic) + sum(len(v) for v in event_handlers.values()) + len(external)
         if total == 0:
-            print("    ✓ No vulnerabilities found.")
+            print("    ✅ No DOM XSS vulnerabilities detected.")
             continue
 
-        print(f"    Found {total} potential issues:")
-
-        def print_occurrence(occ, tag="Unknown"):
-            pattern = occ.get("pattern", "?")
-            line = occ.get("line", "N/A")
-            column = occ.get("column", "N/A")
-            context = occ.get("context", "").strip()
-            src = occ.get("source", "unknown")
-            hint = get_exploit_hint(pattern, context)
-            print(f"      [{src.upper()}] {pattern}")
-            if line is not None or column is not None:
-                print(f"         Location: line {line}, col {column}")
-            if context:
-                # Truncate long context
-                ctx_short = context if len(context) < 120 else context[:117] + "..."
-                print(f"         Context: {ctx_short}")
-            print(f"         💡 Exploit hint: {hint}")
+        print(f"    ⚠️ Found {total} potential issue(s):")
 
         for occ in static:
             if is_false_positive(occ):
                 continue
-            print_occurrence(occ, "Static")
+            pattern = occ.get("pattern", "?")
+            line = occ.get("line", "N/A")
+            src = occ.get("source", "static")
+            hint = get_exploit_hint(pattern).split('.')[0]
+            print(f"      [{src.upper()}] {pattern} (line {line})")
+            print(f"         💡 {hint}")
+
         for occ in dynamic:
             if is_false_positive(occ):
                 continue
-            print_occurrence(occ, "Dynamic")
+            pattern = occ.get("pattern", "?")
+            line = occ.get("line", "N/A")
+            src = occ.get("source", "dynamic")
+            hint = get_exploit_hint(pattern).split('.')[0]
+            print(f"      [{src.upper()}] {pattern} (line {line})")
+            print(f"         💡 {hint}")
+
         for occ in external:
-            print_occurrence(occ, "External")
+            pattern = occ.get("pattern", "?")
+            line = occ.get("line", "N/A")
+            hint = get_exploit_hint(pattern).split('.')[0]
+            print(f"      [EXTERNAL] {pattern} (line {line})")
+            print(f"         💡 {hint}")
+
         for etype, handlers in event_handlers.items():
             for h in handlers:
-                # EventHandler to_dict keys: tag, attribute, handler, line, column
                 tag = h.get("tag", "?")
                 attr = h.get("attribute", "?")
                 code = h.get("handler", "")
                 line = h.get("line", "N/A")
-                col = h.get("column", "N/A")
-                print(f"      [EVENT] {tag}[{attr}] = \"{code}\"")
-                if line is not None or col is not None:
-                    print(f"         Location: line {line}, col {col}")
-                print(f"         💡 Exploit hint: {get_exploit_hint(attr, code)}")
+                hint = get_exploit_hint(attr).split('.')[0]
+                print(f"      [EVENT] {tag}[{attr}] = \"{code[:50]}{'...' if len(code)>50 else ''}\" (line {line})")
+                print(f"         💡 {hint}")
 
     print("\n" + "=" * 80)
 
@@ -737,6 +739,13 @@ async def main() -> None:
     Main entry point for the application.
     """
     args = parse_args()
+    from logging import basicConfig, WARNING, DEBUG, INFO
+    if args.quiet:
+        basicConfig(level=WARNING, format='%(levelname)s: %(message)s')
+    elif args.verbose:
+        basicConfig(level=DEBUG, format='%(asctime)s [%(levelname)s] [%(name)s]: %(message)s')
+    else:
+        basicConfig(level=INFO, format='%(asctime)s [%(levelname)s] [%(name)s]: %(message)s')
 
     if not args.url and not args.list_url:
         print("Error: No URL(s) or list URL provided. Please specify one.")
