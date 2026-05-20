@@ -391,3 +391,23 @@ class PriorityManager:
         except Exception as e:
             self.logger.error("Unexpected error calculating optimized priority: %s", str(e))
             raise
+
+    def get_priority_from_risk_level(self, risk_level: str) -> float:
+        """
+        Return a simple priority score based on a textual risk level.
+        
+        Args:
+            risk_level (str): Risk level, e.g. 'critical', 'high', 'medium', 'low'.
+            
+        Returns:
+            float: Priority score between 0 and 10.
+        """
+        mapping = {
+            'critical': 8.0,
+            'high': 6.0,
+            'medium': 3.0,
+            'low': 1.0,
+            'info': 0.5
+        }
+        return mapping.get(risk_level.lower(), 1.0)
+    
