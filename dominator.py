@@ -746,15 +746,24 @@ async def main() -> None:
     """
     args = parse_args()
     from logging import basicConfig, WARNING, DEBUG, INFO, getLogger, root
+    from utils.logger import set_console_level
     if args.quiet:
-        basicConfig(level=WARNING, force=True)
-        # force all existing loggers to follow root level
+        # Set console handler to WARNING (suppress INFO and DEBUG)
+        set_console_level(WARNING)
+        # Also set all existing loggers to WARNING to be safe
+        root.setLevel(WARNING)
         for name in root.manager.loggerDict:
             getLogger(name).setLevel(WARNING)
     elif args.verbose:
-        basicConfig(level=DEBUG, force=True)
+        set_console_level(DEBUG)
+        root.setLevel(DEBUG)
+        for name in root.manager.loggerDict:
+            getLogger(name).setLevel(DEBUG)
     else:
-        basicConfig(level=INFO, force=True)
+        set_console_level(INFO)
+        root.setLevel(INFO)
+        for name in root.manager.loggerDict:
+            getLogger(name).setLevel(INFO)
 
     if not args.url and not args.list_url:
         print("Error: No URL(s) or list URL provided. Please specify one.")
