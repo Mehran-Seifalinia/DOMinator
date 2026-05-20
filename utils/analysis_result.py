@@ -75,6 +75,8 @@ class AnalysisResult:
         self.event_handlers: Dict[str, List[EventHandler]] = {}
         self.external_script_risks: List[Occurrence] = []
         self.analysis_time: datetime = datetime.now()
+        self.start_time: Optional[datetime] = None
+        self.end_time: Optional[datetime] = None
         self.url: Optional[str] = None
         self.status: str = 'pending'  # 'pending', 'completed', 'error'
         self.error_message: Optional[str] = None
@@ -190,6 +192,18 @@ class AnalysisResult:
         """Set the severity level."""
         self.severity = severity
 
+    @property
+    def elapsed_time(self) -> float:
+        """
+        Calculate the elapsed time of the analysis in seconds.
+        
+        Returns:
+            float: Elapsed time in seconds, or 0.0 if times are not set.
+        """
+        if self.start_time and self.end_time:
+            return (self.end_time - self.start_time).total_seconds()
+        return 0.0
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert the analysis result to a dictionary.
@@ -210,7 +224,8 @@ class AnalysisResult:
             'status': self.status,
             'error_message': self.error_message,
             'priority_score': self.priority_score,
-            'severity': self.severity
+            'severity': self.severity,
+            'elapsed_time': self.elapsed_time,
         }
 
     def get_all_occurrences(self) -> List[Occurrence]:
