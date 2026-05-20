@@ -86,20 +86,9 @@ class DynamicAnalyzer:
             self.result.set_error(f"Error analyzing event handlers: {str(e)}")
 
     async def _instrument_and_collect(self, page: Page) -> None:
-        """
-        Inject instrumentation script into the page, execute it,
-        and collect DOM XSS vulnerability reports.
-        """
+        """Collect DOM XSS vulnerability reports from instrumented page."""
         try:
-            # Read the instrumentation script
-            if not INSTRUMENT_SCRIPT_PATH.exists():
-                logger.error(f"Instrumentation script not found at {INSTRUMENT_SCRIPT_PATH}")
-                return
-            instrument_code = INSTRUMENT_SCRIPT_PATH.read_text(encoding='utf-8')
-            await page.add_init_script(instrument_code)
-            # Wait a moment for any script that runs on load and uses sinks
-            await page.wait_for_timeout(1000)  # 1 second; adjust if needed
-            # Retrieve collected results
+            await page.wait_for_timeout(1000)
             results: list = await page.evaluate("window.__DOMINATOR_RESULTS__ || []")
             logger.info(f"Instrumentation collected {len(results)} potential vulnerability reports.")
             
@@ -109,26 +98,21 @@ class DynamicAnalyzer:
                 payload = item.get('payloadSuggestion', '')
                 context = item.get('context', '')
                 
-                # Create Occurrence
                 occurrence: Occurrence = {
                     "line": None,
                     "column": None,
                     "pattern": f"{sink} (source: {source})",
                     "context": f"[{sink}] {context}",
-                    "risk_level": "high",  # Since data flows from user-controllable source to sink
+                    "risk_level": "high",
                     "priority": self.priority_manager.get_priority_from_risk_level("high"),
                     "source": "dynamic"
                 }
+                if payload:
+                    occurrence['context'] += f' | PAYLOAD: {payload}'
                 self.result.add_dynamic_occurrence(occurrence)
                 
-                # Attach payload suggestion to result (we will later use in print)
-                # We can store payload in the context for now; better approach: extend Occurrence with payload field.
-                # For now, append payload to context.
-                occurrence['context'] += f' | PAYLOAD: {payload}' if payload else ''
-                
         except Exception as e:
-            logger.error(f"Error during instrumentation: {str(e)}")
-            self.result.set_error(f"Instrumentation error: {str(e)}")
+            logger.error(f"Error during instrumentation collection: {str(e)}")
 
     async def fetch_and_analyze_external_scripts(self) -> None:
         """
@@ -181,13 +165,18 @@ class DynamicAnalyzer:
                 context = await browser.new_context(**context_options)
                 page = await context.new_page()
 
+                # Inject instrumentation script before any page script runs
+                if INSTRUMENT_SCRIPT_PATH.exists():
+                    instrument_code = INSTRUMENT_SCRIPT_PATH.read_text(encoding='utf-8')
+                    await page.add_init_script(instrument_code)
+                else:
+                    logger.error(f"Instrumentation script not found at {INSTRUMENT_SCRIPT_PATH}")
+
                 if self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
-                    # Navigate to the real URL with a test hash to trigger DOM-based flows
                     test_url = self.url + '#__DOMINATOR_TEST__'
                     logger.info(f"Navigating to {test_url} for dynamic analysis...")
                     await page.goto(test_url, wait_until='networkidle')
                 else:
-                    # Fallback to set_content for offline/local HTML
                     logger.info("Executing HTML in a real browser environment (offline)...")
                     await page.set_content(self.html_content)
 
