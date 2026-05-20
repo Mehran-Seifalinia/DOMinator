@@ -275,6 +275,7 @@ async def scan_url_async(
         logger.info(f"Running dynamic analysis for {url} at level {level}...")
         dynamic_analyzer = DynamicAnalyzer(
             html_content=merged_html,
+            url=url,
             external_urls=list(external_urls),
             headless=headless,
             user_agent=user_agent
