@@ -275,15 +275,15 @@ class PriorityManager:
         """
         self.logger.debug("Processing event handlers (truncated): %s", str(event_handlers)[:100])  # Truncate for security
         try:
-            methods = []
+            methods_set = set()
             for handler in event_handlers:
                 handler_lower = handler.lower()
                 if "onclick" in handler_lower:
-                    methods.append(RiskLevel.DOCUMENT_WRITE)
+                    methods_set.append(RiskLevel.DOCUMENT_WRITE)
                 if "onload" in handler_lower:
-                    methods.append(RiskLevel.INNER_HTML)
+                    methods_set.append(RiskLevel.INNER_HTML)
                 # Add more pattern matching as needed for better accuracy
-            score = self.calculate_method_score(methods)
+            score = self.calculate_method_score(methods_set)
             self.logger.info("Processed event handlers with score: %.2f", score)
             return score
         except ValueError as e:
@@ -308,13 +308,13 @@ class PriorityManager:
         """
         self.logger.debug("Processing DOM results (truncated): %s", str(dom_results)[:100])  # Truncate for security
         try:
-            methods = []
+            methods_set = set()
             for result in dom_results:
                 result_lower = result.lower()
                 if "<script>" in result_lower or "javascript:" in result_lower:
-                    methods.append(RiskLevel.EVAL)
+                    methods_set.add(RiskLevel.EVAL)
                 # Add more pattern matching as needed for better accuracy
-            score = self.calculate_method_score(methods)
+            score = self.calculate_method_score(list(methods_set))
             self.logger.info("Processed DOM results with score: %.2f", score)
             return score
         except ValueError as e:
