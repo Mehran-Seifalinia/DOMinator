@@ -13,6 +13,7 @@ from utils.logger import get_logger
 from utils.patterns import get_risk_level
 from utils.analysis_result import AnalysisResult, Occurrence
 from utils.browser_setup import ensure_browser_installed
+from utils.browser_setup import ensure_browser_installed, BrowserNotInstalledError
 
 logger = get_logger(__name__)
 
@@ -159,20 +160,21 @@ class DynamicAnalyzer:
     async def execute_in_browser(self) -> None:
         """
         Execute HTML in a real browser to detect dynamic vulnerabilities.
-        
-        This method uses Playwright to load the HTML content in a browser
-        and analyze it for potential DOM XSS vulnerabilities.
-        
-        Note: Browser is launched with sandbox for security.
+        Skips browser analysis gracefully if the browser is not installed.
         """
         try:
-            await ensure_browser_installed()
+            # Attempt to ensure browser availability
+            try:
+                await ensure_browser_installed()
+            except BrowserNotInstalledError as e:
+                logger.warning(f"Browser not available: {e}. Skipping browser-based analysis.")
+                return  # Exit gracefully without setting an error on the result
+
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=self.headless, args=['--no-sandbox'] if not self.headless else ['--sandbox'])
                 context_options = {}
                 if self.user_agent:
                     context_options["user_agent"] = self.user_agent
-                    
                 context = await browser.new_context(**context_options)
                 page = await context.new_page()
                 logger.info("Executing HTML in a real browser environment...")
@@ -180,6 +182,9 @@ class DynamicAnalyzer:
                 await self.analyze_dom_xss_risk(page)
                 await context.close()
                 await browser.close()
+        except Exception as e:
+            logger.error(f"Error during dynamic analysis in browser: {str(e)}")
+            self.result.set_error(f"Error during dynamic analysis in browser: {str(e)}")
                         
         except Exception as e:
             logger.error(f"Error during dynamic analysis in browser: {str(e)}")
