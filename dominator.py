@@ -671,12 +671,18 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
         score = res.get("priority_score", 0)
         elapsed = res.get("elapsed_time", 0)
 
-        severity_emoji = {
-            "Critical": "🔥", "High": "🔴", "Medium": "🟡", "Low": "🟢", "Informative": "ℹ️"
-        }.get(severity, "⚪")
+                # Don't show severity if it's Informative and no vulns
+        total_vulns = len(res.get("static_occurrences", [])) + len(res.get("dynamic_occurrences", [])) + \
+                      sum(len(v) for v in res.get("event_handlers", {}).values())
+        if severity == "Informative" and total_vulns == 0:
+            severity_str = ""
+        else:
+            emoji_map = {"Critical": "🔥", "High": "🔴", "Medium": "🟡", "Low": "🟢", "Informative": "ℹ️"}
+            emoji = emoji_map.get(severity, "⚪")
+            severity_str = f" | Severity: {emoji} {severity}"
 
         print(f"\n[{idx}] URL: {url}")
-        print(f"    Status: {status} | Severity: {severity_emoji} {severity} | Time: {elapsed:.2f}s")
+        print(f"    Status: {status}{severity_str} | Time: {elapsed:.2f}s")
 
         if status == "error":
             print(f"    ❌ Error: {res.get('error_message', 'No details')}")
@@ -739,13 +745,16 @@ async def main() -> None:
     Main entry point for the application.
     """
     args = parse_args()
-    from logging import basicConfig, WARNING, DEBUG, INFO
+    from logging import basicConfig, WARNING, DEBUG, INFO, getLogger, root
     if args.quiet:
-        basicConfig(level=WARNING, format='%(levelname)s: %(message)s')
+        basicConfig(level=WARNING, force=True)
+        # force all existing loggers to follow root level
+        for name in root.manager.loggerDict:
+            getLogger(name).setLevel(WARNING)
     elif args.verbose:
-        basicConfig(level=DEBUG, format='%(asctime)s [%(levelname)s] [%(name)s]: %(message)s')
+        basicConfig(level=DEBUG, force=True)
     else:
-        basicConfig(level=INFO, format='%(asctime)s [%(levelname)s] [%(name)s]: %(message)s')
+        basicConfig(level=INFO, force=True)
 
     if not args.url and not args.list_url:
         print("Error: No URL(s) or list URL provided. Please specify one.")
