@@ -102,7 +102,7 @@ class DynamicAnalyzer:
                         "pattern": risk,
                         "context": f"From {res.url}: {risk}",
                         "risk_level": get_risk_level(risk),
-                        "priority": self.priority_manager.calculate_optimized_priority(get_risk_level(risk, complexity=1)),
+                        "priority": self.priority_manager.get_priority_from_risk_level(get_risk_level(risk)),
                         "source": "external"
                     }
                     self.result.add_external_script_risk(occurrence)
@@ -131,7 +131,7 @@ class DynamicAnalyzer:
                         "pattern": outer_html,
                         "context": outer_html,
                         "risk_level": "high",
-                        "priority": self.priority_manager.calculate_optimized_priority("high"),
+                        "priority": self.priority_manager.get_priority_from_risk_level("high"),
                         "source": "dynamic"
                     }
                     self.result.add_dynamic_occurrence(occurrence)
@@ -147,7 +147,7 @@ class DynamicAnalyzer:
                             "pattern": attr_value,
                             "context": f"Element {await element.evaluate('el => el.tagName')} with {attr_name}={attr_value}",
                             "risk_level": get_risk_level(attr_value),
-                            "priority": self.priority_manager.calculate_optimized_priority(get_risk_level(attr_value)),
+                            "priority": self.priority_manager.get_priority_from_risk_level(get_risk_level(attr_value)),
                             "source": "dynamic"
                         }
                         self.result.add_dynamic_occurrence(occurrence)
