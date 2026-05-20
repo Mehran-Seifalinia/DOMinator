@@ -31,11 +31,12 @@ class DynamicAnalyzer:
     """
     
     def __init__(
-        self, 
+        self,
         html_content: str, 
         external_urls: List[str], 
         headless: bool = True, 
-        user_agent: Optional[str] = None
+        user_agent: Optional[str] = None,
+        url: Optional[str] = None
     ) -> None:
         """
         Initialize the DynamicAnalyzer with HTML content and external URLs.
@@ -62,6 +63,7 @@ class DynamicAnalyzer:
         self.user_agent = user_agent
         self.priority_manager = PriorityManager()
         self.result = AnalysisResult()
+        self.url = url
 
     async def analyze_event_handlers(self) -> None:
         """
@@ -169,14 +171,26 @@ class DynamicAnalyzer:
                 return
 
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=self.headless, args=['--no-sandbox'] if not self.headless else ['--sandbox'])
+                browser = await p.chromium.launch(
+                    headless=self.headless,
+                    args=['--no-sandbox'] if not self.headless else ['--sandbox']
+                )
                 context_options = {}
                 if self.user_agent:
                     context_options["user_agent"] = self.user_agent
                 context = await browser.new_context(**context_options)
                 page = await context.new_page()
-                logger.info("Executing HTML in a real browser environment...")
-                await page.set_content(self.html_content)
+
+                if self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
+                    # Navigate to the real URL with a test hash to trigger DOM-based flows
+                    test_url = self.url + '#__DOMINATOR_TEST__'
+                    logger.info(f"Navigating to {test_url} for dynamic analysis...")
+                    await page.goto(test_url, wait_until='networkidle')
+                else:
+                    # Fallback to set_content for offline/local HTML
+                    logger.info("Executing HTML in a real browser environment (offline)...")
+                    await page.set_content(self.html_content)
+
                 await self._instrument_and_collect(page)
                 await context.close()
                 await browser.close()
