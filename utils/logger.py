@@ -98,3 +98,12 @@ def get_logger(name: Optional[str] = None) -> Logger:
             logger.addHandler(_file_handler)
 
     return logger
+
+def set_console_level(level: int) -> None:
+    """
+    Set the logging level for the console handler.
+    
+    Args:
+        level (int): Logging level (e.g., logging.WARNING, logging.ERROR)
+    """
+    _console_handler.setLevel(level)
