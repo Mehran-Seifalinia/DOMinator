@@ -626,6 +626,111 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(full_html)
 
+def print_console_report(results: List[Dict[str, Any]]) -> None:
+    """
+    Print a human-readable summary of scan results to the console,
+    including vulnerabilities, severity, and basic exploit hints.
+    """
+
+    # Helper to generate exploit hint based on pattern
+    def get_exploit_hint(pattern: str, context: str = "") -> str:
+        pattern_lower = pattern.lower()
+        if "eval" in pattern_lower:
+            return "Try injecting code in URL fragment/hash: #javascript:alert(1)"
+        elif "document.write" in pattern_lower:
+            return "Payload example: <img src=x onerror=alert(1)>"
+        elif "innerhtml" in pattern_lower:
+            return "Use event vector: <img src=x onerror=alert(1)>"
+        elif "settimeout" in pattern_lower or "setinterval" in pattern_lower:
+            return "If first argument is controllable, inject function call"
+        elif "location" in pattern_lower or "window.location" in pattern_lower:
+            return "Check if location is set from URL hash/parameter"
+        elif "onclick" in pattern_lower or "onerror" in pattern_lower:
+            return "Test event handler with javascript:alert(1) or &quot; onmouseover=alert(1)"
+        else:
+            return "Inspect context for injection point; try <script>alert(1)</script>"
+
+    def is_false_positive(occ: Dict) -> bool:
+        """Check if an occurrence is a known false positive (Next.js RSC payload)."""
+        pattern = occ.get("pattern", "")
+        ctx = occ.get("context", "")
+        # Skip occurrences that are inside Next.js RSC serialized scripts
+        if "self.__next_f" in pattern or "self.__next_f" in ctx:
+            return True
+        return False
+
+    print("\n" + "=" * 80)
+    print("   DOMinator - Vulnerability Report")
+    print("=" * 80)
+
+    for idx, res in enumerate(results, 1):
+        url = res.get("url", "N/A")
+        status = res.get("status", "pending")
+        severity = res.get("severity", "Unknown")
+        score = res.get("priority_score", 0)
+        elapsed = res.get("elapsed_time", 0)
+
+        print(f"\n[{idx}] URL: {url}")
+        print(f"    Status: {status} | Severity: {severity} (Score: {score if score is not None else 'N/A'}) | Time: {elapsed if elapsed else 'N/A'}s")
+
+        if status == "error":
+            print(f"    Error: {res.get('error_message', 'No details')}")
+            continue
+
+        # Collect all vulnerability occurrences
+        static = res.get("static_results", [])
+        dynamic = res.get("dynamic_results", [])
+        event_handlers = res.get("event_handlers", {})
+        external = res.get("external_script_risks", [])
+
+        total = len(static) + len(dynamic) + sum(len(v) for v in event_handlers.values()) + len(external)
+        if total == 0:
+            print("    ✓ No vulnerabilities found.")
+            continue
+
+        print(f"    Found {total} potential issues:")
+
+        def print_occurrence(occ, tag="Unknown"):
+            pattern = occ.get("pattern", "?")
+            line = occ.get("line", "N/A")
+            column = occ.get("column", "N/A")
+            context = occ.get("context", "").strip()
+            src = occ.get("source", "unknown")
+            hint = get_exploit_hint(pattern, context)
+            print(f"      [{src.upper()}] {pattern}")
+            if line is not None or column is not None:
+                print(f"         Location: line {line}, col {column}")
+            if context:
+                # Truncate long context
+                ctx_short = context if len(context) < 120 else context[:117] + "..."
+                print(f"         Context: {ctx_short}")
+            print(f"         💡 Exploit hint: {hint}")
+
+        for occ in static:
+            if is_false_positive(occ):
+                continue
+            print_occurrence(occ, "Static")
+        for occ in dynamic:
+            if is_false_positive(occ):
+                continue
+            print_occurrence(occ, "Dynamic")
+        for occ in external:
+            print_occurrence(occ, "External")
+        for etype, handlers in event_handlers.items():
+            for h in handlers:
+                # EventHandler to_dict keys: tag, attribute, handler, line, column
+                tag = h.get("tag", "?")
+                attr = h.get("attribute", "?")
+                code = h.get("handler", "")
+                line = h.get("line", "N/A")
+                col = h.get("column", "N/A")
+                print(f"      [EVENT] {tag}[{attr}] = \"{code}\"")
+                if line is not None or col is not None:
+                    print(f"         Location: line {line}, col {col}")
+                print(f"         💡 Exploit hint: {get_exploit_hint(attr, code)}")
+
+    print("\n" + "=" * 80)
+
 async def main() -> None:
     """
     Main entry point for the application.
@@ -684,6 +789,8 @@ async def main() -> None:
     while not results_queue.empty():
         results.append(await results_queue.get())
 
+    print_console_report(results)
+
     if args.output:
         output_path = Path(args.output)
         if not output_path.parent.exists():
@@ -700,7 +807,7 @@ async def main() -> None:
             await write_results_to_html(results, args.output)
             print(f"Results written to {args.output} in HTML format")
     else:
-        print("No output file specified. Results not saved.")
+        print("\n💡 Tip: Use -o <filename> to save results to a file.")
 
 if __name__ == "__main__":
     run(main())
