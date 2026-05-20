@@ -5,6 +5,7 @@ Performs dynamic analysis of HTML content to detect potential DOM XSS vulnerabil
 
 from asyncio import gather, run
 from typing import List, Optional
+from pathlib import Path
 from playwright.async_api import async_playwright, Page
 from extractors.event_handler_extractor import EventHandlerExtractor
 from extractors.external_fetcher import ExternalFetcher
@@ -17,6 +18,7 @@ from utils.browser_setup import ensure_browser_installed, BrowserNotInstalledErr
 
 logger = get_logger(__name__)
 
+INSTRUMENT_SCRIPT_PATH = Path(__file__).parent.parent / 'utils' / 'dom_instrument.js'
 # Maximum allowed HTML size in bytes to prevent memory issues
 MAX_HTML_SIZE = 10 * 1024 * 1024  # 10 MB
 
@@ -81,6 +83,51 @@ class DynamicAnalyzer:
             logger.error(f"Error analyzing event handlers: {str(e)}")
             self.result.set_error(f"Error analyzing event handlers: {str(e)}")
 
+    async def _instrument_and_collect(self, page: Page) -> None:
+        """
+        Inject instrumentation script into the page, execute it,
+        and collect DOM XSS vulnerability reports.
+        """
+        try:
+            # Read the instrumentation script
+            if not INSTRUMENT_SCRIPT_PATH.exists():
+                logger.error(f"Instrumentation script not found at {INSTRUMENT_SCRIPT_PATH}")
+                return
+            instrument_code = INSTRUMENT_SCRIPT_PATH.read_text(encoding='utf-8')
+            await page.add_init_script(instrument_code)
+            # Wait a moment for any script that runs on load and uses sinks
+            await page.wait_for_timeout(1000)  # 1 second; adjust if needed
+            # Retrieve collected results
+            results: list = await page.evaluate("window.__DOMINATOR_RESULTS__ || []")
+            logger.info(f"Instrumentation collected {len(results)} potential vulnerability reports.")
+            
+            for item in results:
+                sink = item.get('sink', 'unknown')
+                source = item.get('source', 'unknown')
+                payload = item.get('payloadSuggestion', '')
+                context = item.get('context', '')
+                
+                # Create Occurrence
+                occurrence: Occurrence = {
+                    "line": None,
+                    "column": None,
+                    "pattern": f"{sink} (source: {source})",
+                    "context": f"[{sink}] {context}",
+                    "risk_level": "high",  # Since data flows from user-controllable source to sink
+                    "priority": self.priority_manager.get_priority_from_risk_level("high"),
+                    "source": "dynamic"
+                }
+                self.result.add_dynamic_occurrence(occurrence)
+                
+                # Attach payload suggestion to result (we will later use in print)
+                # We can store payload in the context for now; better approach: extend Occurrence with payload field.
+                # For now, append payload to context.
+                occurrence['context'] += f' | PAYLOAD: {payload}' if payload else ''
+                
+        except Exception as e:
+            logger.error(f"Error during instrumentation: {str(e)}")
+            self.result.set_error(f"Instrumentation error: {str(e)}")
+
     async def fetch_and_analyze_external_scripts(self) -> None:
         """
         Fetch and analyze external JavaScript files.
@@ -112,63 +159,14 @@ class DynamicAnalyzer:
             logger.error(f"Error fetching or processing external scripts: {str(e)}")
             self.result.set_error(f"Error fetching or processing external scripts: {str(e)}")
 
-    async def analyze_dom_xss_risk(self, page: Page) -> None:
-        """
-        Analyze DOM XSS vulnerabilities by checking dangerous attributes and script inclusions.
-        
-        Args:
-            page (Page): Playwright page object for browser interaction
-        """
-        try:
-            # Get all elements
-            elements = await page.query_selector_all('*')
-            for element in elements:
-                # Check for dynamic script injections or javascript: protocols in outer HTML
-                outer_html = await element.evaluate('el => el.outerHTML')
-                if "<script>" in outer_html.lower() or "javascript:" in outer_html.lower():
-                    occurrence: Occurrence = {
-                        "line": None,
-                        "column": None,
-                        "pattern": outer_html,
-                        "context": outer_html,
-                        "risk_level": "high",
-                        "priority": self.priority_manager.get_priority_from_risk_level("high"),
-                        "source": "dynamic"
-                    }
-                    self.result.add_dynamic_occurrence(occurrence)
-                
-                # Get all attributes for the element
-                attr_names = await element.evaluate('el => Array.from(el.attributes).map(attr => attr.name)')
-                for attr_name in attr_names:
-                    attr_value = await element.get_attribute(attr_name)
-                    if attr_value and any(keyword in attr_value.lower() for keyword in ['javascript:', 'onerror', 'onload']):
-                        occurrence: Occurrence = {
-                            "line": None,
-                            "column": None,
-                            "pattern": attr_value,
-                            "context": f"Element {await element.evaluate('el => el.tagName')} with {attr_name}={attr_value}",
-                            "risk_level": get_risk_level(attr_value),
-                            "priority": self.priority_manager.get_priority_from_risk_level(get_risk_level(attr_value)),
-                            "source": "dynamic"
-                        }
-                        self.result.add_dynamic_occurrence(occurrence)
-                        
-        except Exception as e:
-            logger.error(f"Error while analyzing DOM XSS risks: {str(e)}")
-            self.result.set_error(f"Error while analyzing DOM XSS risks: {str(e)}")
-
     async def execute_in_browser(self) -> None:
-        """
-        Execute HTML in a real browser to detect dynamic vulnerabilities.
-        Skips browser analysis gracefully if the browser is not installed.
-        """
+        """Execute HTML in a real browser to detect dynamic vulnerabilities."""
         try:
-            # Attempt to ensure browser availability
             try:
                 await ensure_browser_installed()
             except BrowserNotInstalledError as e:
                 logger.warning(f"Browser not available: {e}. Skipping browser-based analysis.")
-                return  # Exit gracefully without setting an error on the result
+                return
 
             async with async_playwright() as p:
                 browser = await p.chromium.launch(headless=self.headless, args=['--no-sandbox'] if not self.headless else ['--sandbox'])
@@ -179,13 +177,9 @@ class DynamicAnalyzer:
                 page = await context.new_page()
                 logger.info("Executing HTML in a real browser environment...")
                 await page.set_content(self.html_content)
-                await self.analyze_dom_xss_risk(page)
+                await self._instrument_and_collect(page)
                 await context.close()
                 await browser.close()
-        except Exception as e:
-            logger.error(f"Error during dynamic analysis in browser: {str(e)}")
-            self.result.set_error(f"Error during dynamic analysis in browser: {str(e)}")
-                        
         except Exception as e:
             logger.error(f"Error during dynamic analysis in browser: {str(e)}")
             self.result.set_error(f"Error during dynamic analysis in browser: {str(e)}")
