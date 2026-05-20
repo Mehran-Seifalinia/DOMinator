@@ -19,6 +19,9 @@ DANGEROUS_JS_PATTERNS: List[Pattern] = [
     compile(r"(?i)sessionStorage\s*="),
     compile(r"(?i)window\.location\s*="),
     compile(r"(?i)fetch\s*\("),
+    compile(r"(?i)\.innerHTML\s*="),
+    compile(r"(?i)\.outerHTML\s*="),
+    compile(r"(?i)\.insertAdjacentHTML\s*\("),
 ]
 
 # HTML dangerous patterns
@@ -98,6 +101,8 @@ RISK_LEVELS: Dict[str, str] = {
     'localStorage': 'low',
     'sessionStorage': 'low',
     'window.location': 'high',
+    'innerHTML': 'critical',
+    'outerHTML': 'critical',
 }
 
 def get_risk_level(pattern: str, complexity: int = 1) -> str:
