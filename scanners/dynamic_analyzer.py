@@ -13,7 +13,6 @@ from scanners.priority_manager import PriorityManager
 from utils.logger import get_logger
 from utils.patterns import get_risk_level
 from utils.analysis_result import AnalysisResult, Occurrence
-from utils.browser_setup import ensure_browser_installed
 from utils.browser_setup import ensure_browser_installed, BrowserNotInstalledError
 
 logger = get_logger(__name__)
@@ -125,7 +124,7 @@ class DynamicAnalyzer:
             fetcher = ExternalFetcher(self.external_urls)
             await fetcher.fetch_and_process_scripts()
             
-            analysis_results = fetcher.get_analysis_results()
+            analysis_results = await fetcher.get_analysis_results()
             for res in analysis_results:
                 # Aggregate risks from event_listeners, risky_functions, sources, sinks
                 risks = res.event_listeners + res.risky_functions + res.sources + res.sinks
