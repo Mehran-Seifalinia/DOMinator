@@ -24,9 +24,9 @@ DEFAULT_USER_AGENT = "DOMinator/1.0 (Security Scanner)"
 # Note: These patterns are approximate and may produce false positives in strings or comments.
 # For more accurate analysis, consider using a JS parser like esprima in future versions.
 PATTERNS = {
-    'event_listeners': compile(r'(?<!["\'`])\.addEventListener\(["\'](\w+)["\'](?<!["\'`])'),
+    'event_listeners': compile(r'(?<!["\'`])\.addEventListener\(["\'](\w+)["\'](?!["\'`])'),
     'risky_functions': compile(r'(?<!["\'`])\b(eval|setTimeout|setInterval|Function|document\.write)\b(?!["\'`])'),
-    'sources': compile(r'(?<!["\'`])\b(getElementById|querySelector|getElementsByClassName|getElementsByTagName|getElementsByName|getAttribute|location\.(search|hash|pathname)|document\.(cookie|referrer)|window\.name|localStorage\.getItem|sessionStorage\.getItem|URLSearchParams)\b(?!["\'`])'),
+    'sources': compile(r'(?<!["\'`])\b(getElementById|querySelector|getElementsByClassName|getElementsByTagName|getElementsByName|getAttribute|location\.(?:search|hash|pathname)|document\.(?:cookie|referrer)|window\.name|localStorage\.getItem|sessionStorage\.getItem|URLSearchParams)\b(?!["\'`])'),
     'sinks': compile(r'(?<!["\'`])\b(innerHTML|outerHTML|document\.write|eval|setTimeout|setInterval|Function)\b(?!["\'`])'),
     'risky_events': compile(r'(?<!["\'`])\bon\w+\b(?!["\'`])')
 }
@@ -204,11 +204,13 @@ class ExternalFetcher:
             async with self._lock:
                 if url in self.analysis_results:
                     self.analysis_results[url].merge(analysis)
+                    result = self.analysis_results[url]
                 else:
                     self.analysis_results[url] = analysis
+                    result = analysis
 
             logger.info(f"Analysis completed for {url}")
-            return analysis
+            return result
 
         except Exception as e:
             logger.error(f"Error analyzing script from {url}: {str(e)}")
