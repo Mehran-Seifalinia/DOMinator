@@ -109,15 +109,12 @@ class Payloads:
             self.payload_set.add(new_payload)
             self.logger.info(f"Payload added: {payload}")
 
-    def update_payload(self, old_payload: str, new_payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.BASE64) -> None:
+    def update_payload(self, old_payload: str, new_payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.BASE64) -> bool:
         """
         Update an existing payload.
         
-        Args:
-            old_payload (str): The payload to update
-            new_payload (str): The new payload value
-            payload_type (PayloadType): Type of the payload
-            encoding (Encoding): Encoding of the payload
+        Returns:
+            bool: True if update succeeded, False otherwise
         """
         with self.lock:
             for index, p in enumerate(self.payload_list):
@@ -127,25 +124,40 @@ class Payloads:
                     self.payload_set.discard(p)
                     self.payload_set.add(updated_payload)
                     self.logger.info(f"Payload updated: {old_payload} -> {new_payload}")
-                    return
+                    return True
             self.logger.warning(f"Payload not found for update: {old_payload}")
+            return False
 
-    def remove_payload(self, payload: str) -> None:
+    def remove_payload(self, payload: str, payload_type: Optional[PayloadType] = None, encoding: Optional[Encoding] = None) -> None:
         """
-        Remove a payload.
+        Remove a payload. If payload_type and encoding are provided, remove only the exact match.
+        Otherwise, remove all payloads with the given string (legacy behavior).
         
         Args:
             payload (str): The payload to remove
+            payload_type (Optional[PayloadType]): Specific type to match
+            encoding (Optional[Encoding]): Specific encoding to match
         """
         with self.lock:
-            payloads_to_remove = [p for p in self.payload_list if p.payload == payload]
-            if not payloads_to_remove:
-                self.logger.warning(f"Payload not found for removal: {payload}")
-                return
-            for p in payloads_to_remove:
-                self.payload_list.remove(p)
-                self.payload_set.discard(p)
-                self.logger.info(f"Payload removed: {payload}")
+            if payload_type is not None and encoding is not None:
+                # Remove exact match
+                target = Payload(payload, payload_type, encoding)
+                if target in self.payload_set:
+                    self.payload_list.remove(target)
+                    self.payload_set.discard(target)
+                    self.logger.info(f"Payload removed exactly: {payload}")
+                else:
+                    self.logger.warning(f"Exact payload not found: {payload} with type {payload_type} and encoding {encoding}")
+            else:
+                # Legacy behavior: remove all with matching string
+                payloads_to_remove = [p for p in self.payload_list if p.payload == payload]
+                if not payloads_to_remove:
+                    self.logger.warning(f"Payload not found for removal: {payload}")
+                    return
+                for p in payloads_to_remove:
+                    self.payload_list.remove(p)
+                    self.payload_set.discard(p)
+                    self.logger.info(f"Payload removed: {payload}")
 
     def _is_valid_payload(self, payload: str) -> bool:
         """
