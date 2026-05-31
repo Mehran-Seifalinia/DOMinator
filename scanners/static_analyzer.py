@@ -64,7 +64,7 @@ class StaticAnalyzer:
                     except ValueError:
                         risk_level = RiskLevel.INNER_HTML  # Default fallback
                     priority, _ = self.priority_manager.calculate_optimized_priority(
-                        methods=[risk_level],
+                        methods=[risk_level.name],
                         complexity=ExploitComplexity.MEDIUM  # Default complexity
                     )
                     occurrence: Occurrence = {
@@ -89,7 +89,7 @@ class StaticAnalyzer:
                     except ValueError:
                         risk_level = RiskLevel.INNER_HTML  # Default fallback
                     priority, _ = self.priority_manager.calculate_optimized_priority(
-                        methods=[risk_level],
+                        methods=[risk_level.name],
                         complexity=ExploitComplexity.MEDIUM  # Default complexity
                     )
                     occurrence: Occurrence = {
