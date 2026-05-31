@@ -9,14 +9,14 @@ from typing import List, Pattern, Set, Dict
 # JavaScript dangerous patterns
 DANGEROUS_JS_PATTERNS: List[Pattern] = [
     compile(r"(?i)\beval\s*\("),
-    compile(r"(?i)\bFunction\s*\("),
+    compile(r"(?i)(?<![a-zA-Z0-9_])Function\s*\("),
     compile(r"(?i)window\s*\[\s*['\"]eval['\"]\s*\]"),
     compile(r"(?i)document\.(write|writeln|open)\s*\("),
     compile(r"(?i)(setTimeout|setInterval)\s*\("),
     compile(r"(?i)new\s+(ActiveXObject|XMLHttpRequest)\s*\("),
     compile(r"(?i)document\.cookie\s*="),
-    compile(r"(?i)localStorage\s*="),
-    compile(r"(?i)sessionStorage\s*="),
+    compile(r"(?i)localStorage\s*(?:\.|\(|=)"),
+    compile(r"(?i)sessionStorage\s*(?:\.|\(|=)"),
     compile(r"(?i)window\.location\s*="),
     compile(r"(?i)fetch\s*\("),
     compile(r"(?i)\.innerHTML\s*="),
@@ -91,7 +91,6 @@ EVENT_HANDLER_ATTRIBUTES: Set[str] = {
 RISK_LEVELS: Dict[str, str] = {
     'eval': 'high',
     'Function': 'high',
-    'innerHTML': 'medium',
     'onclick': 'medium',
     'document.write': 'high',
     'setTimeout': 'medium',
@@ -120,12 +119,12 @@ def get_risk_level(pattern: str, complexity: int = 1) -> str:
         in the given pattern string and returns the corresponding risk level.
     """
     try:
-        if any(keyword in pattern.lower() for keyword in ['eval', 'innerHTML', 'document.write']):
-            return "critical"
         pattern_lower = pattern.lower()
+        if any(keyword in pattern_lower for keyword in ['eval', 'innerhtml', 'document.write']):
+            return "critical"
         for key in RISK_LEVELS:
             if key.lower() in pattern_lower:
                 return RISK_LEVELS[key]
         return 'unknown'
-    except Exception as e:
+    except Exception:
         return 'unknown' 
