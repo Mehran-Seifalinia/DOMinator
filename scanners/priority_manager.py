@@ -222,7 +222,7 @@ class PriorityManager:
                 if all(m in methods for m in pair):
                     risk += pair_risk * 1.2
             self.logger.info("Calculated combination risk: %.2f", risk)
-            return risk
+            return round(risk, 2)
         except ValueError as e:
             self.logger.error("ValueError in combination risk calculation: %s", str(e))
             raise
@@ -252,7 +252,7 @@ class PriorityManager:
                 total_reduction += self.security_mechanisms[m]["risk_reduction"]
             impact = max(0.1, 1 - total_reduction)
             self.logger.info("Calculated security mechanisms impact: %.2f", impact)
-            return impact
+            return round(impact, 2)
         except ValueError as e:
             self.logger.error("ValueError in security mechanisms impact calculation: %s", str(e))
             raise
@@ -278,11 +278,8 @@ class PriorityManager:
             methods_set = set()
             for handler in event_handlers:
                 handler_lower = handler.lower()
-                if "onclick" in handler_lower:
-                    methods_set.add(RiskLevel.DOCUMENT_WRITE)
-                if "onload" in handler_lower:
-                    methods_set.add(RiskLevel.INNER_HTML)
-                # Add more pattern matching as needed for better accuracy
+                if any(ev in handler_lower for ev in ["onclick","onload", "onerror","onmouseover", "onfocus", "onchange", "onsubmit"]):
+                    methods_set.add(RiskLevel.EVAL)
             score = self.calculate_method_score(methods_set)
             self.logger.info("Processed event handlers with score: %.2f", score)
             return score
@@ -313,7 +310,16 @@ class PriorityManager:
                 result_lower = result.lower()
                 if "<script>" in result_lower or "javascript:" in result_lower:
                     methods_set.add(RiskLevel.EVAL)
-                # Add more pattern matching as needed for better accuracy
+                if "document.write" in result_lower or "document.writeln" in result_lower:
+                    methods_set.add(RiskLevel.DOCUMENT_WRITE)
+                if "innerhtml" in result_lower or "outerhtml" in result_lower:
+                    methods_set.add(RiskLevel.INNER_HTML)
+                if "settimeout" in result_lower or "setinterval" in result_lower:
+                    methods_set.add(RiskLevel.SET_TIMEOUT)
+                if "localstorage" in result_lower:
+                    methods_set.add(RiskLevel.LOCAL_STORAGE)
+                if "postmessage" in result_lower:
+                    methods_set.add(RiskLevel.POST_MESSAGE)
             score = self.calculate_method_score(list(methods_set))
             self.logger.info("Processed DOM results with score: %.2f", score)
             return score
