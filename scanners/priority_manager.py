@@ -279,9 +279,9 @@ class PriorityManager:
             for handler in event_handlers:
                 handler_lower = handler.lower()
                 if "onclick" in handler_lower:
-                    methods_set.append(RiskLevel.DOCUMENT_WRITE)
+                    methods_set.add(RiskLevel.DOCUMENT_WRITE)
                 if "onload" in handler_lower:
-                    methods_set.append(RiskLevel.INNER_HTML)
+                    methods_set.add(RiskLevel.INNER_HTML)
                 # Add more pattern matching as needed for better accuracy
             score = self.calculate_method_score(methods_set)
             self.logger.info("Processed event handlers with score: %.2f", score)
