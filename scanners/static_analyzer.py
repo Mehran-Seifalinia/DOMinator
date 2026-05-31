@@ -53,16 +53,21 @@ class StaticAnalyzer:
         potential DOM XSS vulnerabilities. It checks both inline JavaScript code
         and HTML element attributes.
         """
+        risk_to_enum = {
+            'critical': RiskLevel.EVAL,
+            'high': RiskLevel.DOCUMENT_WRITE,
+            'medium': RiskLevel.INNER_HTML,
+            'low': RiskLevel.LOCATION,
+            'unknown': RiskLevel.INNER_HTML,
+        }
+
         # Analyze inline scripts
         inline_scripts = self.extractor.extract_inline_scripts()
         for line_num, script in enumerate(inline_scripts, start=1):
             for pattern in DANGEROUS_JS_PATTERNS:
                 for match in pattern.finditer(script):
                     risk_level_str = get_risk_level(match.group())
-                    try:
-                        risk_level = RiskLevel(risk_level_str.upper())  # Convert to Enum if possible
-                    except ValueError:
-                        risk_level = RiskLevel.INNER_HTML  # Default fallback
+                    risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
                     priority, _ = self.priority_manager.calculate_optimized_priority(
                         methods=[risk_level.name],
                         complexity=ExploitComplexity.MEDIUM  # Default complexity
@@ -84,10 +89,7 @@ class StaticAnalyzer:
             for pattern in DANGEROUS_HTML_PATTERNS:
                 if pattern.search(attr) or pattern.search(value):
                     risk_level_str = get_risk_level(attr)
-                    try:
-                        risk_level = RiskLevel(risk_level_str.upper())  # Convert to Enum if possible
-                    except ValueError:
-                        risk_level = RiskLevel.INNER_HTML  # Default fallback
+                    risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
                     priority, _ = self.priority_manager.calculate_optimized_priority(
                         methods=[risk_level.name],
                         complexity=ExploitComplexity.MEDIUM  # Default complexity
@@ -125,7 +127,7 @@ class StaticAnalyzer:
             return self.result
 
     @staticmethod
-    def static_analyze(html_content: str, level: int) -> AnalysisResult:
+    def static_analyze(html_content: str, _level: int) -> AnalysisResult:
         """
         Perform static analysis on given HTML content.
         
