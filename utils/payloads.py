@@ -172,7 +172,15 @@ class Payloads:
         with self.lock:
             try:
                 with open(file_path, 'w') as file:
-                    dump([p.__dict__ for p in self.payload_list], file, default=str, indent=4)
+                    data = [
+                        {
+                            "payload": p.payload,
+                            "payload_type": p.payload_type.value,
+                            "encoding": p.encoding.value
+                        }
+                        for p in self.payload_list
+                    ]
+                    dump(data, file, indent=4)
                 self.logger.info(f"Payloads saved to {file_path}")
             except (OSError, IOError) as e:
                 self.logger.error(f"Error saving payloads to file {file_path}: {e}")
