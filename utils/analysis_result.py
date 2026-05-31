@@ -93,7 +93,7 @@ class AnalysisResult:
         Raises:
             ValueError: If occurrence is invalid (missing required fields)
         """
-        self._validate_occurrence(occurrence)
+        self._validate_occurrence(occurrence, ignore_source=True)
         occurrence['source'] = 'static'
         self.static_occurrences.append(occurrence)
 
@@ -107,7 +107,7 @@ class AnalysisResult:
         Raises:
             ValueError: If occurrence is invalid
         """
-        self._validate_occurrence(occurrence)
+        self._validate_occurrence(occurrence, ignore_source=True)
         occurrence['source'] = 'dynamic'
         self.dynamic_occurrences.append(occurrence)
 
@@ -133,23 +133,29 @@ class AnalysisResult:
         Raises:
             ValueError: If occurrence is invalid
         """
-        self._validate_occurrence(occurrence)
+        self._validate_occurrence(occurrence, ignore_source=True)
         occurrence['source'] = 'external'
         self.external_script_risks.append(occurrence)
 
-    def _validate_occurrence(self, occurrence: Occurrence) -> None:
+    def _validate_occurrence(self, occurrence: Occurrence, ignore_source: bool = False) -> None:
         """Validate required fields in occurrence."""
-        required = {'pattern', 'context', 'risk_level', 'priority', 'source'}
+        required = {'pattern', 'context', 'risk_level', 'priority'}
+        if not ignore_source:
+            required.add('source')
         missing = required - set(occurrence.keys())
         if missing:
             raise ValueError(f"Missing required fields in occurrence: {missing}")
         
     def merge_static_results(self, other: 'AnalysisResult') -> None:
         """Merge only static analysis results from another AnalysisResult."""
+        if not isinstance(other, AnalysisResult):
+            raise TypeError("other must be an instance of AnalysisResult")
         self.static_occurrences.extend(other.static_occurrences)
 
     def merge_dynamic_results(self, other: 'AnalysisResult') -> None:
         """Merge only dynamic analysis results from another AnalysisResult."""
+        if not isinstance(other, AnalysisResult):
+            raise TypeError("other must be an instance of AnalysisResult")
         self.dynamic_occurrences.extend(other.dynamic_occurrences)
 
     def merge_from(self, other: 'AnalysisResult') -> None:
