@@ -689,8 +689,8 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
             continue
 
 
-        static = res.get("static_occurrences", [])
-        dynamic = res.get("dynamic_occurrences", [])
+        static = [occ for occ in res.get("static_occurrences", []) if not is_false_positive(occ)]
+        dynamic = [occ for occ in res.get("dynamic_occurrences", []) if not is_false_positive(occ)]
         event_handlers = res.get("event_handlers", {})
         external = res.get("external_script_risks", [])
 
