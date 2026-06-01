@@ -119,7 +119,7 @@ class StaticAnalyzer:
         try:
             self.detect_dangerous_patterns()
             self.result.set_completed()
-            logger.info("Static analysis completed successfully.")
+            logger.debug("Static analysis completed successfully.")
             return self.result
         except Exception as e:
             logger.error(f"Error during static analysis: {str(e)}")
