@@ -82,6 +82,7 @@ class AnalysisResult:
         self.error_message: Optional[str] = None
         self.priority_score: Optional[float] = None
         self.severity: Optional[str] = None
+        self.dom_sources: List[str] = []
 
     def add_static_occurrence(self, occurrence: Occurrence) -> None:
         """
@@ -151,6 +152,7 @@ class AnalysisResult:
         if not isinstance(other, AnalysisResult):
             raise TypeError("other must be an instance of AnalysisResult")
         self.static_occurrences.extend(other.static_occurrences)
+        self.dom_sources.extend(other.dom_sources)
 
     def merge_dynamic_results(self, other: 'AnalysisResult') -> None:
         """Merge only dynamic analysis results from another AnalysisResult."""
