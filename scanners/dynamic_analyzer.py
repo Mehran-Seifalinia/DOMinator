@@ -222,33 +222,25 @@ class DynamicAnalyzer:
                 new_query = urlencode(query_dict, doseq=True)
                 test_url = urlunparse(parsed._replace(query=new_query))
                 logger.debug(f"Testing payload in query (new param): {test_url}")
-                try:
-                    await page.goto(test_url, wait_until='networkidle', timeout=2000)
-                    dialog_msg = await self._check_for_alert(page, timeout=1500)
-                    if dialog_msg and 'alert' in dialog_msg.lower():
-                        occurrence: Occurrence = {
-                            "line": None,
-                            "column": None,
-                            "pattern": f"DOM XSS via query injection",
-                            "context": f"Payload: {payload} triggered alert: {dialog_msg}",
-                            "risk_level": "high",
-                            "priority": 90,
-                            "source": "dynamic"
-                        }
-                        self.result.add_dynamic_occurrence(occurrence)
-                        return True
-                except Exception as e:
-                    logger.debug(f"Error testing payload {payload}: {e}")
-                return False
-        else:
-            return False
-        
-        logger.debug(f"Testing payload in {inject_in}: {test_url}")
         try:
-            await page.goto(test_url, wait_until='networkidle', timeout=2000)
-            dialog_msg = await self._check_for_alert(page, timeout=1500)
+            # Set up dialog listener BEFORE navigation
+            dialog_msg = None
+            async def on_dialog(dialog):
+                nonlocal dialog_msg
+                dialog_msg = dialog.message
+                await dialog.dismiss()
+            page.on('dialog', on_dialog)
+            
+            # Navigate to the test URL
+            await page.goto(test_url, wait_until='networkidle', timeout=3000)
+            
+            # Wait a short time for any dialog that might have appeared during/after load
+            await page.wait_for_timeout(1000)
+            
+            # Remove listener
+            page.remove_listener('dialog', on_dialog)
+            
             if dialog_msg and 'alert' in dialog_msg.lower():
-                # Record successful exploitation
                 occurrence: Occurrence = {
                     "line": None,
                     "column": None,
@@ -262,6 +254,11 @@ class DynamicAnalyzer:
                 return True
         except Exception as e:
             logger.debug(f"Error testing payload {payload}: {e}")
+            # Ensure listener is removed even on error
+            try:
+                page.remove_listener('dialog', on_dialog)
+            except:
+                pass
         return False
     
     async def _click_buttons_and_check(self, page: Page) -> None:
