@@ -39,7 +39,8 @@ class DynamicAnalyzer:
         payloads: Optional[List[str]] = None,
         sink_types: Optional[List[str]] = None,
         dom_sources: Optional[List[str]] = None,
-        timeout: int = 10
+        timeout: int = 10,
+        browser = None
     ) -> None:
         """
         Initialize the DynamicAnalyzer with HTML content and external URLs.
@@ -70,6 +71,7 @@ class DynamicAnalyzer:
         self.sink_types = sink_types if sink_types else []
         self.dom_sources = dom_sources if dom_sources else []
         self.timeout = timeout
+        self.browser = browser
 
 
     async def analyze_event_handlers(self) -> None:
@@ -317,15 +319,20 @@ class DynamicAnalyzer:
                 logger.warning(f"Browser not available: {e}. Skipping browser-based analysis.")
                 return
 
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(
+            close_browser_after = False
+            if self.browser is None:
+                p = await async_playwright().start()
+                self.browser = await p.chromium.launch(
                     headless=self.headless,
                     args=['--no-sandbox'] if not self.headless else ['--sandbox']
                 )
+                close_browser_after = True
+
+            try:
                 context_options = {}
                 if self.user_agent:
                     context_options["user_agent"] = self.user_agent
-                context = await browser.new_context(**context_options)
+                context = await self.browser.new_context(**context_options)
                 page = await context.new_page()
 
                 # Inject instrumentation script if exists (optional)
@@ -423,7 +430,10 @@ class DynamicAnalyzer:
                 await self._instrument_and_collect(page)
                 
                 await context.close()
-                await browser.close()
+            finally:
+                if close_browser_after:
+                    await self.browser.close()
+                    await p.stop()
         except Exception as e:
             logger.error(f"Error during dynamic analysis in browser: {str(e)}")
             self.result.set_error(f"Error during dynamic analysis in browser: {str(e)}")
