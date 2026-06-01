@@ -50,7 +50,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument('-q', '--quiet', action='store_true', help='Suppress all info logs, show only final report')
     parser.add_argument('-b', '--blacklist', type=str, help='Comma-separated list of URLs to exclude from scanning')
     parser.add_argument('--no-external', action='store_true', help='Do not fetch and analyze external JS files')
-    parser.add_argument('--headless', action='store_true', help='Enable headless browser mode')
+    parser.add_argument('--visible', action='store_true', help='Show browser window (non-headless mode)')
     parser.add_argument('--user-agent', type=str, help='Set a custom User-Agent')
     parser.add_argument('--cookie', type=str, help='Send custom cookies')
     parser.add_argument('--max-depth', type=int, default=1, help='Set maximum crawling depth (currently basic implementation)')
@@ -315,7 +315,7 @@ async def scan_url_async(
             result.set_completed()
 
             await results_queue.put(result.to_dict())
-            logger.info(f"✓ OK: {page_url}")
+            logger.info(f"🔄 Analyzing: {page_url}")
             logger.debug(f"Analysis completed for {page_url} in {result.elapsed_time:.2f} seconds")
         # ========== END OF PER-PAGE ANALYSIS ==========
 
@@ -747,6 +747,7 @@ async def main() -> None:
     Main entry point for the application.
     """
     args = parse_args()
+    headless_mode = not args.visible
     from logging import WARNING, DEBUG, INFO, getLogger, root
     from utils.logger import set_console_level
     if args.quiet:
@@ -796,7 +797,7 @@ async def main() -> None:
             await scan_url_async(
                 url, args.level, results_queue, args.timeout,
                 args.proxy, args.verbose, args.blacklist,
-                args.no_external, args.headless,
+                args.no_external, headless_mode,
                 args.user_agent, args.cookie,
                 args.max_depth, args.auto_update,
                 args.report_format, session
