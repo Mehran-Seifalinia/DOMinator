@@ -276,19 +276,39 @@ async def scan_url_async(
             static_occurrences = static_analyzer.analyze()
             result.merge_static_results(static_occurrences)
 
-            # Dynamic analysis
-            if verbose:
-                logger.info(f"Running dynamic analysis for {page_url} at level {level}...")
-            dynamic_analyzer = DynamicAnalyzer(
-                html_content=page_html,
-                url=page_url,
-                external_urls=list(external_urls),
-                headless=headless,
-                user_agent=user_agent,
-                payloads=get_default_payloads()
-            )
-            dynamic_result = await dynamic_analyzer.run_analysis()
-            result.merge_dynamic_results(dynamic_result)
+            # Dynamic analysis - only if static analysis found something interesting
+            static_sinks = [occ.get('pattern', '') for occ in result.static_occurrences]
+            has_risk = False
+            # Check dangerous sink patterns
+            dangerous_keywords = ['innerHTML', 'outerHTML', 'document.write', 'eval', 'setTimeout', 'setInterval', 'location', 'onclick', 'onerror']
+            for pattern in static_sinks:
+                if any(keyword in pattern.lower() for keyword in dangerous_keywords):
+                    has_risk = True
+                    break
+            # Also check event handlers
+            if result.event_handlers:
+                has_risk = True
+            
+            if not has_risk:
+                if verbose:
+                    logger.info(f"Skipping dynamic analysis for {page_url}: no risky sinks found statically.")
+                # Still create empty dynamic result
+                dynamic_result = AnalysisResult()
+                result.merge_dynamic_results(dynamic_result)
+            else:
+                if verbose:
+                    logger.info(f"Running dynamic analysis for {page_url} at level {level}...")
+                dynamic_analyzer = DynamicAnalyzer(
+                    html_content=page_html,
+                    url=page_url,
+                    external_urls=list(external_urls),
+                    headless=headless,
+                    user_agent=user_agent,
+                    payloads=get_default_payloads(),
+                    sink_types=static_sinks   # new parameter to pass sink info
+                )
+                dynamic_result = await dynamic_analyzer.run_analysis()
+                result.merge_dynamic_results(dynamic_result)
 
             # Risk calculation
             if verbose:
