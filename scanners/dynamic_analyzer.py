@@ -289,9 +289,39 @@ class DynamicAnalyzer:
                     logger.warning(f"Instrumentation script not found at {INSTRUMENT_SCRIPT_PATH}")
 
                 # Case 1: We have a real URL - test with payloads
+                # Case 1: We have a real URL - test with payloads only if sink_types indicate risk
                 if self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
                     # First load clean page to set up any initial state
                     await page.goto(self.url, wait_until='networkidle')
+                    await self._click_buttons_and_check(page)
+                    
+                    # Determine which payloads to use based on sink types
+                    sink_lower = ' '.join([s.lower() for s in self.sink_types])
+                    selected_payloads = []
+                    if 'innerhtml' in sink_lower or 'outerhtml' in sink_lower or 'document.write' in sink_lower:
+                        selected_payloads.append('<img src=x onerror=alert(1)>')
+                        selected_payloads.append('"><img src=x onerror=alert(1)>')
+                    if 'eval' in sink_lower or 'settimeout' in sink_lower or 'setinterval' in sink_lower:
+                        selected_payloads.append('alert(1)')
+                        selected_payloads.append("eval('alert(1)')")
+                    if 'location' in sink_lower:
+                        selected_payloads.append('javascript:alert(1)')
+                    # Always test a basic script tag if any sink is present
+                    if selected_payloads:
+                        selected_payloads.append('<script>alert(1)</script>')
+                    else:
+                        # fallback to default payloads if no specific sink matched
+                        selected_payloads = self.payloads[:3]  # only first few to save time
+                    
+                    logger.debug(f"Selected {len(selected_payloads)} payloads for {self.url} based on sinks: {self.sink_types}")
+                    
+                    for payload in selected_payloads:
+                        await self._test_url_with_payload(page, self.url, payload, 'hash')
+                        await self._test_url_with_payload(page, self.url, payload, 'query')
+                    
+                    # Also test the original __DOMINATOR_TEST__ for compatibility (optional)
+                    test_url = self.url + '#__DOMINATOR_TEST__'
+                    await page.goto(test_url, wait_until='networkidle')
                     await self._click_buttons_and_check(page)
                     
                     # Test each payload in hash and query
