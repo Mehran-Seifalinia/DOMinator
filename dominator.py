@@ -288,6 +288,7 @@ async def scan_url_async(
             else:
                 if verbose:
                     logger.info(f"Running dynamic analysis for {page_url} at level {level}...")
+                sink_patterns = [occ.get('pattern', '') for occ in result.static_occurrences]
                 dynamic_analyzer = DynamicAnalyzer(
                     html_content=page_html,
                     url=page_url,
@@ -295,6 +296,7 @@ async def scan_url_async(
                     headless=headless,
                     user_agent=user_agent,
                     payloads=get_default_payloads(),
+                    sink_types=sink_patterns
                 )
                 dynamic_result = await dynamic_analyzer.run_analysis()
                 result.merge_dynamic_results(dynamic_result)
