@@ -37,6 +37,28 @@
             if (hash && hash.length > 1) decodedHash = decodeURIComponent(hash.substring(1));
             if (search && search.length > 1) decodedSearch = decodeURIComponent(search.substring(1));
         } catch(e) { /* ignore decode errors */ }
+
+        // Exact match for query parameter values
+        if (search && search.length > 1) {
+            const params = new URLSearchParams(search.substring(1));
+            for (let [key, val] of params) {
+                if (value === val) return 'location.search (param value)';
+                try {
+                    const decodedVal = decodeURIComponent(val);
+                    if (value === decodedVal) return 'location.search (param value decoded)';
+                } catch(e) {}
+            }
+        }
+        
+        // Exact match for hash value
+        if (hash && hash.length > 1) {
+            const rawHash = hash.substring(1);
+            if (value === rawHash) return 'location.hash (exact)';
+            try {
+                const decodedHashVal = decodeURIComponent(rawHash);
+                if (value === decodedHashVal) return 'location.hash (exact decoded)';
+            } catch(e) {}
+        }
         
         // Check if value appears in decoded hash or search (after decoding)
         if (decodedHash && value.indexOf(decodedHash) !== -1) return 'location.hash';
