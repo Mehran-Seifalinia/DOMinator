@@ -38,7 +38,8 @@ class DynamicAnalyzer:
         url: Optional[str] = None,
         payloads: Optional[List[str]] = None,
         sink_types: Optional[List[str]] = None,
-        dom_sources: Optional[List[str]] = None
+        dom_sources: Optional[List[str]] = None,
+        timeout: int = 10
     ) -> None:
         """
         Initialize the DynamicAnalyzer with HTML content and external URLs.
@@ -68,6 +69,7 @@ class DynamicAnalyzer:
         self.payloads = payloads if payloads else []   # store payloads
         self.sink_types = sink_types if sink_types else []
         self.dom_sources = dom_sources if dom_sources else []
+        self.timeout = timeout
 
 
     async def analyze_event_handlers(self) -> None:
@@ -205,7 +207,7 @@ class DynamicAnalyzer:
                     await dialog.dismiss()
                 page.on('dialog', on_dialog)
                 
-                await page.goto(test_url, wait_until='networkidle', timeout=3000)
+                await page.goto(test_url, wait_until='networkidle', timeout=self.timeout * 1000)
                 await page.wait_for_timeout(1000)  # extra time for delayed alerts
                 
                 page.remove_listener('dialog', on_dialog)
