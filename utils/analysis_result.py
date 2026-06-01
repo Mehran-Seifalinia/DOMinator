@@ -138,11 +138,9 @@ class AnalysisResult:
         occurrence['source'] = 'external'
         self.external_script_risks.append(occurrence)
 
-    def _validate_occurrence(self, occurrence: Occurrence, ignore_source: bool = False) -> None:
+    def _validate_occurrence(self, occurrence: Occurrence) -> None:
         """Validate required fields in occurrence."""
         required = {'pattern', 'context', 'risk_level', 'priority'}
-        if not ignore_source:
-            required.add('source')
         missing = required - set(occurrence.keys())
         if missing:
             raise ValueError(f"Missing required fields in occurrence: {missing}")
@@ -174,7 +172,8 @@ class AnalysisResult:
                 self.event_handlers[event_type] = []
             self.event_handlers[event_type].extend(handlers)
         self.external_script_risks.extend(other.external_script_risks)
-        # Update status if other has error
+        self.dom_sources.extend(other.dom_sources)
+        self.dom_sources.extend(other.dom_sources)
         if other.status == 'error':
             self.set_error(other.error_message or "Merged error")
 
@@ -251,15 +250,9 @@ class AnalysisResult:
         )
 
     def get_high_risk_occurrences(self) -> List[Occurrence]:
-        """
-        Get all high-risk occurrences.
-        
-        Returns:
-            List[Occurrence]: List of high-risk occurrences
-        """
         return [
             occ for occ in self.get_all_occurrences()
-            if occ['risk_level'] in {'high', 'critical'}  # Flexible for severity levels
+            if occ['risk_level'].lower() in {'high', 'critical'}
         ]
 
     def get_occurrences_by_source(self, source: str) -> List[Occurrence]:
