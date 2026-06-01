@@ -168,19 +168,84 @@ class DynamicAnalyzer:
             else:
                 test_url = base_url + '#' + payload
         elif inject_in == 'query':
-            # Add payload as a parameter named 'xss'
             from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
             parsed = urlparse(base_url)
             query_dict = parse_qs(parsed.query)
-            query_dict['xss'] = [payload]
-            new_query = urlencode(query_dict, doseq=True)
-            test_url = urlunparse(parsed._replace(query=new_query))
+            
+            # If there are existing query parameters, replace each parameter's value with payload
+            # (to handle pages that read specific param like 'code', 'name', etc.)
+            # Limit to first 2 parameters to avoid too many requests
+            if query_dict:
+                # Create a list of test URLs: one per existing parameter
+                test_urls = []
+                params_list = list(query_dict.keys())
+                # Limit to first 2 parameters
+                for i, param in enumerate(params_list[:2]):
+                    new_query_dict = {param: [payload]}
+                    # Keep other parameters unchanged? Better to keep them to avoid breaking functionality
+                    # Actually, we should replace only the target param and keep others as-is
+                    for other_param, values in query_dict.items():
+                        if other_param != param:
+                            new_query_dict[other_param] = values
+                    new_query = urlencode(new_query_dict, doseq=True)
+                    test_urls.append(urlunparse(parsed._replace(query=new_query)))
+                # Also test adding 'xss' as fallback (original behavior)
+                query_dict['xss'] = [payload]
+                new_query = urlencode(query_dict, doseq=True)
+                test_urls.append(urlunparse(parsed._replace(query=new_query)))
+                
+                # Test each URL (limit to 3 total)
+                for url_tmp in test_urls[:3]:
+                    logger.debug(f"Testing payload in query variant: {url_tmp}")
+                    try:
+                        await page.goto(url_tmp, wait_until='networkidle', timeout=2000)
+                        dialog_msg = await self._check_for_alert(page, timeout=1500)
+                        if dialog_msg and 'alert' in dialog_msg.lower():
+                            # Record successful exploitation
+                            occurrence: Occurrence = {
+                                "line": None,
+                                "column": None,
+                                "pattern": f"DOM XSS via query parameter injection",
+                                "context": f"Payload: {payload} triggered alert: {dialog_msg}",
+                                "risk_level": "high",
+                                "priority": 90,
+                                "source": "dynamic"
+                            }
+                            self.result.add_dynamic_occurrence(occurrence)
+                            return True
+                    except Exception as e:
+                        logger.debug(f"Error testing query variant: {e}")
+                return False
+            else:
+                # No existing parameters, add 'xss'
+                query_dict['xss'] = [payload]
+                new_query = urlencode(query_dict, doseq=True)
+                test_url = urlunparse(parsed._replace(query=new_query))
+                logger.debug(f"Testing payload in query (new param): {test_url}")
+                try:
+                    await page.goto(test_url, wait_until='networkidle', timeout=2000)
+                    dialog_msg = await self._check_for_alert(page, timeout=1500)
+                    if dialog_msg and 'alert' in dialog_msg.lower():
+                        occurrence: Occurrence = {
+                            "line": None,
+                            "column": None,
+                            "pattern": f"DOM XSS via query injection",
+                            "context": f"Payload: {payload} triggered alert: {dialog_msg}",
+                            "risk_level": "high",
+                            "priority": 90,
+                            "source": "dynamic"
+                        }
+                        self.result.add_dynamic_occurrence(occurrence)
+                        return True
+                except Exception as e:
+                    logger.debug(f"Error testing payload {payload}: {e}")
+                return False
         else:
             return False
         
         logger.debug(f"Testing payload in {inject_in}: {test_url}")
         try:
-            await page.goto(test_url, wait_until='networkidle', timeout=3000)
+            await page.goto(test_url, wait_until='networkidle', timeout=2000)
             dialog_msg = await self._check_for_alert(page, timeout=1500)
             if dialog_msg and 'alert' in dialog_msg.lower():
                 # Record successful exploitation
@@ -316,24 +381,34 @@ class DynamicAnalyzer:
                     # Filter payloads based on sink types (only relevant ones)
                     sink_lower = ' '.join([s.lower() for s in self.sink_types])
                     relevant_payloads = []
+                    # First, add payloads from self.payloads that match the sink type
                     for p in self.payloads:
                         p_lower = p.lower()
                         if 'innerhtml' in sink_lower or 'outerhtml' in sink_lower or 'document.write' in sink_lower:
                             if '<img' in p_lower or '<script' in p_lower or 'onerror' in p_lower:
-                                relevant_payloads.append(p)
+                                if p not in relevant_payloads:
+                                    relevant_payloads.append(p)
                         elif 'eval' in sink_lower or 'settimeout' in sink_lower or 'setinterval' in sink_lower:
                             if 'alert(' in p_lower:
-                                relevant_payloads.append(p)
+                                if p not in relevant_payloads:
+                                    relevant_payloads.append(p)
                         elif 'location' in sink_lower:
                             if 'javascript:' in p_lower:
-                                relevant_payloads.append(p)
-                        else:
-                            # default: include first two payloads
-                            if len(relevant_payloads) < 2 and p not in relevant_payloads:
-                                relevant_payloads.append(p)
+                                if p not in relevant_payloads:
+                                    relevant_payloads.append(p)
                     
-                    # Limit to max 2 payloads per page for speed
+                    # If no matching payload found for a critical sink, add a default one
+                    if 'eval' in sink_lower and not any('alert(' in p.lower() for p in relevant_payloads):
+                        relevant_payloads.append('alert(1)')
+                    if ('innerhtml' in sink_lower or 'document.write' in sink_lower) and not any('<img' in p.lower() or '<script' in p.lower() for p in relevant_payloads):
+                        relevant_payloads.append('<img src=x onerror=alert(1)>')
+                    if 'location' in sink_lower and not any('javascript:' in p.lower() for p in relevant_payloads):
+                        relevant_payloads.append('javascript:alert(1)')
+                    
+                    # Limit to max 2 payloads
                     relevant_payloads = relevant_payloads[:2]
+                    
+                    # If still empty, fallback to first two from self.payloads
                     if not relevant_payloads and self.payloads:
                         relevant_payloads = self.payloads[:2]
                     
