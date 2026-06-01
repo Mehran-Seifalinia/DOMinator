@@ -165,7 +165,7 @@ async def crawl_links(html_content: str, base_url: str, max_depth: int, visited:
                         continue
                     visited.add(full_url)
                     child_html = await fetch_html(full_url, session, timeout, headers)
-                    if child_html:
+                    if child_html is not None and len(child_html) > 0:
                         all_pages.append((full_url, child_html))
                         queue.append((full_url, child_html, current_depth + 1))
         except Exception as e:
@@ -211,17 +211,23 @@ async def scan_url_async(
         report_format (str): Report format
         session (ClientSession): aiohttp session
     """
-    try:        
+    try:
+        from urllib.parse import urlparse
+        
         if blacklist:
             blacklist_urls = [bl.strip() for bl in blacklist.split(',')]
-            if any(url == bl_url for bl_url in blacklist_urls):  # Exact match for blacklist
-                logger.info(f"Skipping blacklisted URL: {url}")
-                return
+            parsed_target = urlparse(url)
+            target_key = f"{parsed_target.netloc}{parsed_target.path}".rstrip('/')
+            for bl in blacklist_urls:
+                parsed_bl = urlparse(bl)
+                bl_key = f"{parsed_bl.netloc}{parsed_bl.path}".rstrip('/')
+                if target_key == bl_key:
+                    logger.info(f"Skipping blacklisted URL: {url}")
+                    return
 
         if auto_update:
             logger.info("Auto-update payloads: Placeholder - implement fetching latest patterns.")
 
-        start_time = time()
         logger.info(f"🔍 DOMinator started scanning: {url}")
 
         # Prepare headers
@@ -253,9 +259,11 @@ async def scan_url_async(
 
         # Analyze each page separately
         for page_url, page_html in pages_to_scan:
+            logger.info(f"🔄 Analyzing: {page_url}")
+            page_start_time = time()
             result = AnalysisResult()
             result.url = page_url
-            result.start_time = datetime.fromtimestamp(start_time)
+            result.start_time = datetime.fromtimestamp(page_start_time)
 
             # Extract external scripts for this page
             external_urls = set()
@@ -317,7 +325,6 @@ async def scan_url_async(
             result.set_completed()
 
             await results_queue.put(result.to_dict())
-            logger.info(f"🔄 Analyzing: {page_url}")
             logger.debug(f"Analysis completed for {page_url} in {result.elapsed_time:.2f} seconds")
         # ========== END OF PER-PAGE ANALYSIS ==========
 
@@ -793,18 +800,7 @@ async def main() -> None:
     
     # Limit concurrent threads
     semaphore = Semaphore(args.threads)
-    
-    async def limited_scan_url(url):
-        async with semaphore:
-            await scan_url_async(
-                url, args.level, results_queue, args.timeout,
-                args.proxy, args.verbose, args.blacklist,
-                args.no_external, headless_mode,
-                args.user_agent, args.cookie,
-                args.max_depth, args.auto_update,
-                args.report_format, session
-            )
-    
+
     # Configure client session
     timeout = ClientTimeout(total=args.timeout)
     session_kwargs = {"timeout": timeout}
