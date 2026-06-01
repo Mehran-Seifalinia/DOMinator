@@ -189,8 +189,6 @@ class DynamicAnalyzer:
                 test_urls.append(urlunparse(parsed._replace(query=new_query)))
             else:
                 # No existing params, add xss
-                test_urls.append(base_url + '?xss=' + urlencode({None: payload})[2:])  # quick way
-                # Better:
                 test_urls.append(urlunparse(parsed._replace(query=f"xss={payload}")))
         else:
             return False
