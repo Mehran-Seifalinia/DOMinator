@@ -9,7 +9,6 @@ from aiohttp import ClientSession, ClientTimeout, ClientError
 from json import dump, dumps
 from time import time
 from bs4 import BeautifulSoup
-from extractors.event_handler_extractor import EventHandlerExtractor
 from scanners.static_analyzer import StaticAnalyzer
 from scanners.dynamic_analyzer import DynamicAnalyzer
 from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity, AttackVector
@@ -18,10 +17,10 @@ from utils.analysis_result import AnalysisResult
 from argparse import ArgumentParser
 from sys import exit
 from csv import DictWriter
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Set, Tuple
 from pathlib import Path
 from datetime import datetime
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 from html import escape  # For sanitizing in reports
 
 # Set up logger
@@ -135,7 +134,7 @@ async def extract_external_scripts(html_content: str, base_url: str) -> Set[str]
         logger.error(f"Error extracting external scripts: {str(e)}")
         return set()
 
-async def crawl_links(html_content: str, base_url: str, max_depth: int, visited: Set[str], session: ClientSession, timeout: int, headers: Dict[str, str], depth: int = 0) -> List[str]:
+async def crawl_links(html_content: str, base_url: str, max_depth: int, visited: Set[str], session: ClientSession, timeout: int, headers: Dict[str, str], depth: int = 0) -> List[Tuple[str, str]]:
     """
     Basic recursive crawler to find additional URLs up to max_depth.
     
@@ -152,12 +151,13 @@ async def crawl_links(html_content: str, base_url: str, max_depth: int, visited:
     Returns:
         List[str]: List of additional HTML contents from crawled links
     """
+    
     if depth >= max_depth:
         return []
     
     try:
         soup = BeautifulSoup(html_content, "html.parser")
-        additional_html = []
+        additional_pages = []
         for link in soup.find_all("a", href=True):
             href = link.get("href")
             if href:
@@ -167,10 +167,9 @@ async def crawl_links(html_content: str, base_url: str, max_depth: int, visited:
                 visited.add(full_url)
                 child_html = await fetch_html(full_url, session, timeout, headers)
                 if child_html:
-                    additional_html.append(child_html)
-                    # Recurse
-                    additional_html.extend(await crawl_links(child_html, full_url, max_depth, visited, session, timeout, headers, depth + 1))
-        return additional_html
+                    additional_pages.append((full_url, child_html))
+                    additional_pages.extend(await crawl_links(child_html, full_url, max_depth, visited, session, timeout, headers, depth + 1))
+        return additional_pages
     except Exception as e:
         logger.error(f"Error during crawling: {str(e)}")
         return []
@@ -244,78 +243,77 @@ async def scan_url_async(
             await results_queue.put(result.to_dict())
             return
         
-        # Basic crawling if max_depth > 1
+        # ========== CRAWLING AND PER-PAGE ANALYSIS ==========
         visited = set([url])
-        crawled_html = [html_content]
+        pages_to_scan = [(url, html_content)]  # list of (page_url, page_html)
+
         if max_depth > 1:
-            crawled_html.extend(await crawl_links(html_content, url, max_depth, visited, session, timeout, headers))
-            logger.info(f"Crawled {len(crawled_html)} pages from {url}")
+            crawled_pages = await crawl_links(html_content, url, max_depth, visited, session, timeout, headers)
+            pages_to_scan.extend(crawled_pages)
+            logger.info(f"Crawled total {len(pages_to_scan)} pages from {url}")
 
-        # For simplicity, merge all crawled HTML (in production, analyze each separately)
-        merged_html = ' '.join(crawled_html)  # Basic merge - improve as needed
+        # Analyze each page separately
+        for page_url, page_html in pages_to_scan:
+            result = AnalysisResult()
+            result.url = page_url
+            result.start_time = datetime.fromtimestamp(start_time)
 
-        # Extract external scripts from main HTML
-        external_urls = set()
-        if not no_external:
-            external_urls = await extract_external_scripts(html_content, url)
+            # Extract external scripts for this page
+            external_urls = set()
+            if not no_external:
+                external_urls = await extract_external_scripts(page_html, page_url)
+                if verbose:
+                    logger.info(f"Found {len(external_urls)} external JS for {page_url}")
+
+            # Static analysis
             if verbose:
-                logger.info(f"Found {len(external_urls)} external JavaScript files")
+                logger.info(f"Running static analysis for {page_url} at level {level}...")
+            static_analyzer = StaticAnalyzer(page_html)
+            static_occurrences = static_analyzer.analyze()
+            result.merge_static_results(static_occurrences)
 
-        # Create analysis result
-        result = AnalysisResult()
-        result.url = url
-        result.start_time = datetime.fromtimestamp(start_time)
+            # Dynamic analysis
+            if verbose:
+                logger.info(f"Running dynamic analysis for {page_url} at level {level}...")
+            dynamic_analyzer = DynamicAnalyzer(
+                html_content=page_html,
+                url=page_url,
+                external_urls=list(external_urls),
+                headless=headless,
+                user_agent=user_agent
+            )
+            dynamic_result = await dynamic_analyzer.run_analysis()
+            result.merge_dynamic_results(dynamic_result)
 
-        # Run static analysis (level affects patterns checked - placeholder)
-        if verbose:        
-            logger.info(f"Running static analysis for {url} at level {level}...")
-        static_analyzer = StaticAnalyzer(merged_html)
-        static_occurrences = static_analyzer.analyze()
-        result.merge_static_results(static_occurrences)
+            # Risk calculation
+            if verbose:
+                logger.info(f"Calculating risk scores for {page_url}...")
+            priority_manager = PriorityManager()
+            methods = []
+            static_patterns = [occ['pattern'] for occ in result.static_occurrences]
+            if any('eval' in p.lower() for p in static_patterns):
+                methods.append(RiskLevel.EVAL)
+            if any('document.write' in p.lower() for p in static_patterns):
+                methods.append(RiskLevel.DOCUMENT_WRITE)
+            if any('innerhtml' in p.lower() for p in static_patterns):
+                methods.append(RiskLevel.INNER_HTML)
 
-        # Run dynamic analysis (level affects thoroughness - placeholder)
-        if verbose:        
-            logger.info(f"Running dynamic analysis for {url} at level {level}...")
-        dynamic_analyzer = DynamicAnalyzer(
-            html_content=merged_html,
-            url=url,
-            external_urls=list(external_urls),
-            headless=headless,
-            user_agent=user_agent
-        )
-        dynamic_result = await dynamic_analyzer.run_analysis()
-        result.merge_dynamic_results(dynamic_result)
+            priority_score, severity = priority_manager.calculate_optimized_priority(
+                methods=methods if methods else [RiskLevel.LOCATION],
+                complexity=ExploitComplexity.MEDIUM,
+                attack_vector=AttackVector.URL,
+                event_handlers=[handler.handler for handlers in result.event_handlers.values() for handler in handlers],
+                dom_results=[occ['pattern'] for occ in result.dynamic_occurrences]
+            )
 
-        # Calculate final risk score and priority
-        if verbose:        
-            logger.info(f"Calculating risk scores for {url}...")
-        priority_manager = PriorityManager()
-        
-        methods = []
-        # Assume has_dangerous_method implemented in AnalysisResult; placeholder check
-        static_patterns = [occ['pattern'] for occ in result.static_occurrences]
-        if any('eval' in p.lower() for p in static_patterns):
-            methods.append(RiskLevel.EVAL)
-        if any('document.write' in p.lower() for p in static_patterns):
-            methods.append(RiskLevel.DOCUMENT_WRITE)
-        if any('innerhtml' in p.lower() for p in static_patterns):
-            methods.append(RiskLevel.INNER_HTML)
-            
-        priority_score, severity = priority_manager.calculate_optimized_priority(
-            methods=methods if methods else [RiskLevel.LOCATION],  # Fallback if no methods
-            complexity=ExploitComplexity.MEDIUM,
-            attack_vector=AttackVector.URL,  # Assume URL-based for now
-            event_handlers=[handler.handler for handlers in result.event_handlers.values() for handler in handlers],
-            dom_results=[occ['pattern'] for occ in result.dynamic_occurrences]
-        )
+            result.set_priority_score(priority_score)
+            result.set_severity(severity)
+            result.end_time = datetime.now()
+            result.set_completed()
 
-        result.set_priority_score(priority_score)
-        result.set_severity(severity)
-        result.end_time = datetime.now()
-        result.set_completed()
-
-        await results_queue.put(result.to_dict())
-        logger.info(f"Analysis completed for {url} in {result.elapsed_time:.2f} seconds")
+            await results_queue.put(result.to_dict())
+            logger.info(f"Analysis completed for {page_url} in {result.elapsed_time:.2f} seconds")
+        # ========== END OF PER-PAGE ANALYSIS ==========
 
     except Exception as e:
         logger.error(f"Error while scanning {url}: {str(e)}")
