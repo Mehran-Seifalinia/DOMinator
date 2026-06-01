@@ -69,7 +69,7 @@ class PriorityManager:
         self.normalization_factor = normalization_factor
 
         self.risk_levels = {
-            RiskLevel.EVAL: {"base": 10, "weight": 1.6},
+            RiskLevel.EVAL: {"base": 15, "weight": 2.0},
             RiskLevel.DOCUMENT_WRITE: {"base": 9, "weight": 1.5},
             RiskLevel.INNER_HTML: {"base": 8, "weight": 1.4},
             RiskLevel.SET_TIMEOUT: {"base": 6, "weight": 1.1},
@@ -388,8 +388,12 @@ class PriorityManager:
             weight_factor = 1 + (total_score / self.normalization_factor)
 
             final_priority = total_score * risk_factor * weight_factor
+            # Boost priority for eval
+            if RiskLevel.EVAL in methods:
+                final_priority *= 1.5
 
-            thresholds = [15, 35, 55, 75]
+            # Adjusted thresholds to give higher severity to eval and document.write
+            thresholds = [10, 25, 45, 65]  # lowered to make eval reach High more easily
             labels = ["Informative", "Low", "Medium", "High", "Critical"]
             severity = labels[sum(final_priority >= t for t in thresholds)]
 
