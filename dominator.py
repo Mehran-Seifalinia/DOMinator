@@ -14,6 +14,7 @@ from scanners.dynamic_analyzer import DynamicAnalyzer
 from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity, AttackVector
 from utils.logger import get_logger
 from utils.analysis_result import AnalysisResult
+from utils.payloads import get_default_payloads
 from argparse import ArgumentParser
 from sys import exit
 from csv import DictWriter
@@ -283,7 +284,8 @@ async def scan_url_async(
                 url=page_url,
                 external_urls=list(external_urls),
                 headless=headless,
-                user_agent=user_agent
+                user_agent=user_agent,
+                payloads=get_default_payloads()
             )
             dynamic_result = await dynamic_analyzer.run_analysis()
             result.merge_dynamic_results(dynamic_result)
