@@ -4,7 +4,7 @@ Manages and calculates priority levels for detected DOM XSS vulnerabilities.
 """
 
 from enum import Enum
-from typing import List, Dict, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 from utils.logger import get_logger
 
 class RiskLevel(Enum):
@@ -135,6 +135,12 @@ class PriorityManager:
         try:
             score = 0.0
             for method in methods:
+                # Convert string to RiskLevel if needed
+                if isinstance(method, str):
+                    try:
+                        method = RiskLevel[method.upper()]
+                    except KeyError:
+                        raise ValueError(f"Invalid RiskLevel string: {method}")
                 if method not in self.risk_levels:
                     raise ValueError(f"Invalid RiskLevel: {method}")
                 score += self.risk_levels[method]["base"] * self.risk_levels[method]["weight"]
