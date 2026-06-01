@@ -74,7 +74,7 @@ class DynamicAnalyzer:
         try:
             extractor = EventHandlerExtractor(self.html_content)
             event_handlers = extractor.extract_event_handlers()
-            logger.info(f"Extracted event handlers: {len(event_handlers)} types found.")
+            logger.debug(f"Extracted event handlers: {len(event_handlers)} types found.")
             
             for event_type, handlers in event_handlers.items():
                 for handler in handlers:
@@ -89,7 +89,7 @@ class DynamicAnalyzer:
         try:
             await page.wait_for_timeout(1000)
             results: list = await page.evaluate("window.__DOMINATOR_RESULTS__ || []")
-            logger.info(f"Instrumentation collected {len(results)} potential vulnerability reports.")
+            logger.debug(f"Instrumentation collected {len(results)} potential vulnerability reports.")
             
             for item in results:
                 sink = item.get('sink', 'unknown')
@@ -173,10 +173,10 @@ class DynamicAnalyzer:
 
                 if self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
                     test_url = self.url + '#__DOMINATOR_TEST__'
-                    logger.info(f"Navigating to {test_url} for dynamic analysis...")
+                    logger.debug(f"Navigating to {test_url} for dynamic analysis...")
                     await page.goto(test_url, wait_until='networkidle')
                 else:
-                    logger.info("Executing HTML in a real browser environment (offline)...")
+                    logger.debug("Executing HTML in a real browser environment (offline)...")
                     await page.set_content(self.html_content)
 
                 await self._instrument_and_collect(page)
@@ -197,7 +197,7 @@ class DynamicAnalyzer:
             This method coordinates all analysis tasks and runs them in parallel
             for better performance.
         """
-        logger.info("Starting dynamic analysis...")
+        logger.debug("Starting dynamic analysis...")
     
         try:
             await gather(
@@ -206,7 +206,7 @@ class DynamicAnalyzer:
                 self.execute_in_browser()
             )
     
-            logger.info("Dynamic analysis completed successfully")
+            logger.debug("Dynamic analysis completed successfully")
             self.result.set_completed()
             return self.result
     
