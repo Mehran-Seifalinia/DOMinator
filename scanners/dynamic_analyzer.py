@@ -35,7 +35,8 @@ class DynamicAnalyzer:
         external_urls: List[str], 
         headless: bool = True, 
         user_agent: Optional[str] = None,
-        url: Optional[str] = None
+        url: Optional[str] = None,
+        payloads: Optional[List[str]] = None   # new parameter
     ) -> None:
         """
         Initialize the DynamicAnalyzer with HTML content and external URLs.
@@ -45,9 +46,8 @@ class DynamicAnalyzer:
             external_urls (List[str]): List of external URLs to analyze
             headless (bool): Whether to run browser in headless mode
             user_agent (Optional[str]): Custom user agent string
-            
-        Raises:
-            ValueError: If HTML content is invalid or too large
+            url (Optional[str]): Original URL of the page
+            payloads (Optional[List[str]]): List of XSS payloads to inject
         """
         if not isinstance(html_content, str) or not html_content.strip():
             raise ValueError("HTML content must be a non-empty string.")
@@ -63,6 +63,7 @@ class DynamicAnalyzer:
         self.priority_manager = PriorityManager()
         self.result = AnalysisResult()
         self.url = url
+        self.payloads = payloads if payloads else []   # store payloads
 
     async def analyze_event_handlers(self) -> None:
         """
@@ -112,6 +113,117 @@ class DynamicAnalyzer:
                 
         except Exception as e:
             logger.error(f"Error during instrumentation collection: {str(e)}")
+
+    async def _check_for_alert(self, page: Page, timeout: int = 2000) -> Optional[str]:
+        """
+        Set up a dialog listener to detect alert/confirm/prompt.
+        
+        Args:
+            page (Page): Playwright page object
+            timeout (int): Time to wait for dialog in milliseconds
+            
+        Returns:
+            Optional[str]: The dialog message if detected, else None
+        """
+        try:
+            # Create a future that resolves when dialog appears
+            dialog_message = None
+            async def on_dialog(dialog):
+                nonlocal dialog_message
+                dialog_message = dialog.message
+                await dialog.dismiss()
+            
+            page.on('dialog', on_dialog)
+            # Wait a short time for any dialog to appear
+            await page.wait_for_timeout(timeout)
+            page.remove_listener('dialog', on_dialog)
+            return dialog_message
+        except Exception as e:
+            logger.debug(f"Error checking for dialog: {e}")
+            return None
+    
+    async def _test_url_with_payload(self, page: Page, base_url: str, payload: str, inject_in: str = 'hash') -> bool:
+        """
+        Test a single payload by injecting it into URL hash or query parameter.
+        
+        Args:
+            page (Page): Playwright page
+            base_url (str): Original URL
+            payload (str): XSS payload
+            inject_in (str): 'hash' or 'query' or 'both'
+            
+        Returns:
+            bool: True if alert was detected
+        """
+        test_url = base_url
+        if inject_in == 'hash':
+            # Replace or append to hash
+            if '#' in base_url:
+                test_url = base_url.split('#')[0] + '#' + payload
+            else:
+                test_url = base_url + '#' + payload
+        elif inject_in == 'query':
+            # Add payload as a parameter named 'xss'
+            from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
+            parsed = urlparse(base_url)
+            query_dict = parse_qs(parsed.query)
+            query_dict['xss'] = [payload]
+            new_query = urlencode(query_dict, doseq=True)
+            test_url = urlunparse(parsed._replace(query=new_query))
+        else:
+            return False
+        
+        logger.debug(f"Testing payload in {inject_in}: {test_url}")
+        try:
+            await page.goto(test_url, wait_until='networkidle', timeout=5000)
+            dialog_msg = await self._check_for_alert(page, timeout=1500)
+            if dialog_msg and 'alert' in dialog_msg.lower():
+                # Record successful exploitation
+                occurrence: Occurrence = {
+                    "line": None,
+                    "column": None,
+                    "pattern": f"DOM XSS via {inject_in} injection",
+                    "context": f"Payload: {payload} triggered alert: {dialog_msg}",
+                    "risk_level": "high",
+                    "priority": 90,
+                    "source": "dynamic"
+                }
+                self.result.add_dynamic_occurrence(occurrence)
+                return True
+        except Exception as e:
+            logger.debug(f"Error testing payload {payload}: {e}")
+        return False
+    
+    async def _click_buttons_and_check(self, page: Page) -> None:
+        """
+        Find all buttons or elements with onclick attribute and click them,
+        then check for alerts.
+        """
+        try:
+            # Find all elements with onclick attribute
+            elements = await page.query_selector_all('[onclick]')
+            logger.debug(f"Found {len(elements)} elements with onclick attribute")
+            for elem in elements:
+                try:
+                    await elem.click()
+                    dialog_msg = await self._check_for_alert(page, timeout=1000)
+                    if dialog_msg:
+                        occurrence: Occurrence = {
+                            "line": None,
+                            "column": None,
+                            "pattern": "onclick event triggered XSS",
+                            "context": f"Clicked element with onclick, alert: {dialog_msg}",
+                            "risk_level": "medium",
+                            "priority": 70,
+                            "source": "dynamic"
+                        }
+                        self.result.add_dynamic_occurrence(occurrence)
+                    # Wait a bit after click to let any delayed payload run
+                    await page.wait_for_timeout(500)
+                except Exception as e:
+                    logger.debug(f"Error clicking element: {e}")
+        except Exception as e:
+            logger.error(f"Error in click simulation: {e}")
 
     async def fetch_and_analyze_external_scripts(self) -> None:
         """
@@ -166,22 +278,47 @@ class DynamicAnalyzer:
                 context = await browser.new_context(**context_options)
                 page = await context.new_page()
 
-                # Inject instrumentation script before any page script runs
+                # Inject instrumentation script if exists (optional)
                 if INSTRUMENT_SCRIPT_PATH.exists():
                     instrument_code = INSTRUMENT_SCRIPT_PATH.read_text(encoding='utf-8')
                     await page.add_init_script(instrument_code)
                 else:
-                    logger.error(f"Instrumentation script not found at {INSTRUMENT_SCRIPT_PATH}")
+                    logger.warning(f"Instrumentation script not found at {INSTRUMENT_SCRIPT_PATH}")
 
+                # Case 1: We have a real URL - test with payloads
                 if self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
+                    # First load clean page to set up any initial state
+                    await page.goto(self.url, wait_until='networkidle')
+                    await self._click_buttons_and_check(page)
+                    
+                    # Test each payload in hash and query
+                    for payload in self.payloads:
+                        # Test in hash
+                        await self._test_url_with_payload(page, self.url, payload, 'hash')
+                        # Test in query (if URL has query parameters or we add one)
+                        await self._test_url_with_payload(page, self.url, payload, 'query')
+                    
+                    # Also test the original __DOMINATOR_TEST__ for compatibility
                     test_url = self.url + '#__DOMINATOR_TEST__'
-                    logger.debug(f"Navigating to {test_url} for dynamic analysis...")
                     await page.goto(test_url, wait_until='networkidle')
+                    await self._click_buttons_and_check(page)
+                
+                # Case 2: Offline HTML content
                 else:
                     logger.debug("Executing HTML in a real browser environment (offline)...")
                     await page.set_content(self.html_content)
+                    await self._click_buttons_and_check(page)
+                    # For offline content, we can also try to inject payloads into the DOM via evaluate
+                    for payload in self.payloads:
+                        try:
+                            await page.evaluate(f"document.body.innerHTML += '{payload}';")
+                            await self._check_for_alert(page, timeout=1000)
+                        except Exception:
+                            pass
 
+                # Collect instrumentation results if any (optional)
                 await self._instrument_and_collect(page)
+                
                 await context.close()
                 await browser.close()
         except Exception as e:
