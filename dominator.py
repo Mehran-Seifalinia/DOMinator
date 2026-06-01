@@ -247,12 +247,13 @@ async def scan_url_async(
         # ========== CRAWLING AND PER-PAGE ANALYSIS ==========
         visited = set([url])
         pages_to_scan = [(url, html_content)]  # list of (page_url, page_html)
-        logger.info(f"📄 Found {len(pages_to_scan)} page(s) to analyze (depth={max_depth})")
 
         if max_depth > 1:
             crawled_pages = await crawl_links(html_content, url, max_depth, visited, session, timeout, headers)
             pages_to_scan.extend(crawled_pages)
-            logger.debug(f"Crawled total {len(pages_to_scan)} pages from {url}")
+            logger.info(f"Crawled total {len(pages_to_scan)} pages from {url}")
+
+        logger.info(f"📄 Found {len(pages_to_scan)} page(s) to analyze (depth={max_depth})")
 
         # Analyze each page separately
         for page_url, page_html in pages_to_scan:
