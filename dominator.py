@@ -128,7 +128,8 @@ async def extract_external_scripts(html_content: str, base_url: str) -> Set[str]
                 elif not src.startswith(("http://", "https://")):
                     src = urljoin(base_url, src)
                 external_scripts.add(src)
-        logger.info(f"Extracted {len(external_scripts)} unique external JavaScript URLs")
+        if len(external_scripts) > 0:
+            logger.debug(f"Extracted {len(external_scripts)} unique external JavaScript URLs")
         return external_scripts
     except Exception as e:
         logger.error(f"Error extracting external scripts: {str(e)}")
@@ -225,7 +226,7 @@ async def scan_url_async(
             logger.info("Auto-update payloads: Placeholder - implement fetching latest patterns.")
 
         start_time = time()
-        logger.info(f"Starting analysis of {url}...")
+        logger.debug(f"Starting analysis of {url}...")
 
         # Prepare headers
         headers = {}
@@ -267,14 +268,14 @@ async def scan_url_async(
 
             # Static analysis
             if verbose:
-                logger.debug(f"Running static analysis for {page_url} at level {level}...")
+                logger.info(f"Running static analysis for {page_url} at level {level}...")
             static_analyzer = StaticAnalyzer(page_html)
             static_occurrences = static_analyzer.analyze()
             result.merge_static_results(static_occurrences)
 
             # Dynamic analysis
             if verbose:
-                logger.debug(f"Running dynamic analysis for {page_url} at level {level}...")
+                logger.info(f"Running dynamic analysis for {page_url} at level {level}...")
             dynamic_analyzer = DynamicAnalyzer(
                 html_content=page_html,
                 url=page_url,
@@ -287,7 +288,7 @@ async def scan_url_async(
 
             # Risk calculation
             if verbose:
-                logger.debug(f"Calculating risk scores for {page_url}...")
+                logger.info(f"Calculating risk scores for {page_url}...")
             priority_manager = PriorityManager()
             methods = []
             static_patterns = [occ['pattern'] for occ in result.static_occurrences]
