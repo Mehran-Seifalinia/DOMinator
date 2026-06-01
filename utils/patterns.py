@@ -34,6 +34,20 @@ DANGEROUS_HTML_PATTERNS: List[Pattern] = [
     compile(r"(?i)<\s*object\s*data\s*=\s*['\"].*['\"]\s*>"),
 ]
 
+# DOM source patterns (where attacker-controlled data can enter)
+DOM_SOURCES_PATTERNS: List[Pattern] = [
+    compile(r"location\.hash"),
+    compile(r"location\.search"),
+    compile(r"location\.href"),
+    compile(r"document\.URL"),
+    compile(r"document\.documentURI"),
+    compile(r"document\.referrer"),
+    compile(r"window\.name"),
+    compile(r"document\.cookie"),
+    compile(r"sessionStorage\s*\.getItem"),
+    compile(r"localStorage\s*\.getItem"),
+]
+
 # Event handler attributes
 EVENT_HANDLER_ATTRIBUTES: Set[str] = {
     # Window Events
