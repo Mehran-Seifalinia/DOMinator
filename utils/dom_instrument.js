@@ -22,21 +22,34 @@
     }
 
     // Helper: check if a string comes from a user-controllable source
-    function detectSource(value) {
-        const url = document.URL;
-        const hash = location.hash;
-        const search = location.search;
+        function detectSource(value) {
+        if (typeof value !== 'string' || value.length === 0) return null;
+        
+        const hash = location.hash;      // e.g., "#<img src=x>"
+        const search = location.search;  // e.g., "?code=alert(1)"
         const referrer = document.referrer;
         const windowName = window.name;
-        // Could also check localStorage etc. but focus on URL/hash/name
-        if (typeof value === 'string' && value.length > 0) {
-            if (hash && hash.length > 1 && value.indexOf(hash.substring(1)) !== -1) return 'location.hash';
-            if (search && value.indexOf(search.substring(1)) !== -1) return 'location.search';
-            if (windowName && value.indexOf(windowName) !== -1) return 'window.name';
-            if (referrer && value.indexOf(referrer) !== -1) return 'document.referrer';
-            // Also check if value contains URL-like patterns that match current URL parameters
-            // Fallback: if value contains location.href? Not ideal.
-        }
+        
+        // Decode URL components once for comparison
+        let decodedHash = '';
+        let decodedSearch = '';
+        try {
+            if (hash && hash.length > 1) decodedHash = decodeURIComponent(hash.substring(1));
+            if (search && search.length > 1) decodedSearch = decodeURIComponent(search.substring(1));
+        } catch(e) { /* ignore decode errors */ }
+        
+        // Check if value appears in decoded hash or search (after decoding)
+        if (decodedHash && value.indexOf(decodedHash) !== -1) return 'location.hash';
+        if (decodedSearch && value.indexOf(decodedSearch) !== -1) return 'location.search';
+        
+        // Also check raw (encoded) versions as fallback
+        if (hash && hash.length > 1 && value.indexOf(hash.substring(1)) !== -1) return 'location.hash';
+        if (search && search.length > 1 && value.indexOf(search.substring(1)) !== -1) return 'location.search';
+        
+        // Check other sources
+        if (windowName && value.indexOf(windowName) !== -1) return 'window.name';
+        if (referrer && value.indexOf(referrer) !== -1) return 'document.referrer';
+        
         return null;
     }
 
@@ -88,6 +101,35 @@
         }
         return originalEval.call(window, code);
     };
+
+    // Hook iframe srcdoc attribute (setAttribute and direct property)
+    const originalSetAttribute = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function(name, value) {
+        if (name === 'srcdoc' && typeof value === 'string') {
+            const source = detectSource(value);
+            if (source) {
+                report('srcdoc', source, '<img src=x onerror=alert(1)>', `iframe srcdoc set to: ${value.substring(0, 80)}`);
+            }
+        }
+        return originalSetAttribute.call(this, name, value);
+    };
+    
+    // Hook iframe.srcdoc property setter
+    const iframeProto = HTMLIFrameElement.prototype;
+    const srcdocDescriptor = Object.getOwnPropertyDescriptor(iframeProto, 'srcdoc');
+    if (srcdocDescriptor && srcdocDescriptor.set) {
+        Object.defineProperty(iframeProto, 'srcdoc', {
+            set: function(value) {
+                const source = detectSource(value);
+                if (source) {
+                    report('srcdoc', source, '<img src=x onerror=alert(1)>', `iframe.srcdoc set to: ${value.substring(0, 80)}`);
+                }
+                return srcdocDescriptor.set.call(this, value);
+            },
+            get: srcdocDescriptor.get,
+            configurable: true
+        });
+    }
 
     // Hook Function constructor
     const originalFunction = window.Function;
