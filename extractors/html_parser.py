@@ -5,10 +5,16 @@ Provides functionality for parsing and extracting information from HTML content.
 
 from typing import List, Optional, Tuple
 from bs4 import BeautifulSoup
-from utils.logger import get_logger
+from utils.logger import get_logger, warning, debug, error, info
 from traceback import format_exc
-from html5lib import parse
 from re import compile, IGNORECASE
+
+try:
+    from html5lib import parse
+except ImportError:
+    raise ImportError(
+        "html5lib is required for HTML parsing. Please install it using: pip install html5lib"
+    )
 
 logger = get_logger(__name__)
 
@@ -43,17 +49,17 @@ class ScriptExtractor:
             raise TypeError("HTML content must be a non-empty string.")
         
         if len(html) > MAX_HTML_SIZE:
-            logger.error(f"HTML content exceeds maximum size ({MAX_HTML_SIZE} bytes).")
+            error(f"HTML content exceeds maximum size ({MAX_HTML_SIZE} bytes).")
             raise ValueError("HTML content is too large.")
         
         if not self._validate_html(html):
-            raise ValueError("Invalid HTML: The provided HTML is not valid.")
+            raise ValueError("Invalid HTML: The provided HTML could not be parsed. Please check the syntax.")
         
         try:
             # Use 'html5lib' for better position tracking and consistency with validation
             self.soup = BeautifulSoup(html, "html5lib")
         except Exception as e:
-            logger.error(f"Error parsing HTML with BeautifulSoup: {str(e)}\n{format_exc()}")
+            error(f"Error parsing HTML with BeautifulSoup: {str(e)}\n{format_exc()}")
             raise ValueError("Failed to parse the HTML content.")
 
     def _validate_html(self, html: str) -> bool:
@@ -70,14 +76,15 @@ class ScriptExtractor:
             html5lib is tolerant and may not catch all structural errors strictly.
             For stricter validation, consider additional checks in future versions.
         """
+
         try:
             parse(html)
             return True
         except ValueError as e:
-            logger.error(f"Invalid HTML content: {str(e)}")
+            error(f"Invalid HTML content: {str(e)}")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error during HTML validation: {str(e)}\n{format_exc()}")
+            error(f"Unexpected error during HTML validation: {str(e)}\n{format_exc()}")
             return False
 
     def extract_inline_scripts(self) -> List[str]:
@@ -98,12 +105,12 @@ class ScriptExtractor:
                     scripts.add(script.string.strip())
             
             if not scripts:
-                logger.debug("No inline scripts found in the HTML.")
+                debug("No inline scripts found in the HTML.")
             
             return list(scripts)
         
         except Exception as e:
-            logger.error(f"Unexpected error extracting inline scripts: {str(e)}\n{format_exc()}")
+            error(f"Unexpected error extracting inline scripts: {str(e)}\n{format_exc()}")
             return []
 
     def get_dangerous_html_elements(self) -> List[Tuple[str, str, str, Optional[int]]]:
@@ -141,12 +148,12 @@ class ScriptExtractor:
                         dangerous_elements.append((tag.name, attr, value, line))
             
             if not dangerous_elements:
-                logger.debug("No dangerous HTML elements found.")
+                debug("No dangerous HTML elements found.")
             
             return dangerous_elements
         
         except Exception as e:
-            logger.error(f"Error extracting dangerous HTML elements: {str(e)}\n{format_exc()}")
+            error(f"Error extracting dangerous HTML elements: {str(e)}\n{format_exc()}")
             return []
 
 if __name__ == "__main__":
@@ -163,4 +170,4 @@ if __name__ == "__main__":
     """
     extractor = ScriptExtractor(sample_html)
     scripts = extractor.extract_inline_scripts()
-    logger.info(f"Extracted inline scripts: {scripts}")
+    info(f"Extracted inline scripts: {scripts}")
