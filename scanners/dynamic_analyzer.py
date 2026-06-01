@@ -36,7 +36,8 @@ class DynamicAnalyzer:
         headless: bool = True, 
         user_agent: Optional[str] = None,
         url: Optional[str] = None,
-        payloads: Optional[List[str]] = None   # new parameter
+        payloads: Optional[List[str]] = None,
+        sink_types: Optional[List[str]] = None
     ) -> None:
         """
         Initialize the DynamicAnalyzer with HTML content and external URLs.
@@ -64,6 +65,8 @@ class DynamicAnalyzer:
         self.result = AnalysisResult()
         self.url = url
         self.payloads = payloads if payloads else []   # store payloads
+        self.sink_types = sink_types if sink_types else []
+
 
     async def analyze_event_handlers(self) -> None:
         """
