@@ -4,10 +4,10 @@ Suppresses noisy output during installation attempts and provides clean error me
 """
 
 from os import path
-from subprocess import run, DEVNULL, PIPE, CalledProcessError
 from sys import executable
 from typing import Optional
-
+from asyncio import create_subprocess_exec
+from asyncio.subprocess import DEVNULL, PIPE
 from playwright.async_api import async_playwright
 from utils.logger import get_logger
 
@@ -48,25 +48,29 @@ async def ensure_browser_installed() -> bool:
     logger.info("Chromium browser not found. Attempting automatic installation...")
 
     try:
-        # Run installation silently: suppress stdout, keep stderr for debugging if needed
-        run(
-            [executable, "-m", "playwright", "install", "chromium"],
-            check=True,
+        # Run installation asynchronously to avoid blocking the event loop
+        proc = await create_subprocess_exec(
+            executable, "-m", "playwright", "install", "chromium",
             stdout=DEVNULL,
-            stderr=PIPE,
-            text=True
+            stderr=PIPE
         )
-    except CalledProcessError as e:
-        # Log a concise error, including stderr only if it adds value
-        error_detail = e.stderr.strip() if e.stderr else "No additional details"
-        logger.error(
-            "Automatic browser installation failed. "
-            "This may be due to network restrictions (e.g., internet censorship). "
-            "Please run 'playwright install chromium' manually in a terminal with unrestricted internet access. "
-            f"Details: {error_detail}"
-        )
+        _, stderr_bytes = await proc.communicate()
+        if proc.returncode != 0:
+            error_detail = stderr_bytes.decode().strip() if stderr_bytes else "No additional details"
+            logger.error(
+                "Automatic browser installation failed. "
+                "This may be due to network restrictions (e.g., internet censorship). "
+                "Please run 'playwright install chromium' manually in a terminal with unrestricted internet access. "
+                f"Details: {error_detail}"
+            )
+            raise BrowserNotInstalledError(
+                "Automatic installation failed. "
+                "Please run 'playwright install chromium' manually."
+            )
+    except Exception as e:
+        logger.error(f"Unexpected error during browser installation: {str(e)}")
         raise BrowserNotInstalledError(
-            "Automatic installation failed. "
+            "Installation failed due to unexpected error. "
             "Please run 'playwright install chromium' manually."
         )
 
