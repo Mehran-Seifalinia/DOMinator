@@ -173,7 +173,6 @@ class AnalysisResult:
             self.event_handlers[event_type].extend(handlers)
         self.external_script_risks.extend(other.external_script_risks)
         self.dom_sources.extend(other.dom_sources)
-        self.dom_sources.extend(other.dom_sources)
         if other.status == 'error':
             self.set_error(other.error_message or "Merged error")
 
