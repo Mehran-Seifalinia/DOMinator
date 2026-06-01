@@ -220,8 +220,8 @@ class AnalysisResult:
             Dict[str, Any]: Dictionary representation of the analysis result
         """
         return {
-            'static_results': self.static_occurrences,
-            'dynamic_results': self.dynamic_occurrences,
+            'static_occurrences': self.static_occurrences,
+            'dynamic_occurrences': self.dynamic_occurrences,
             'event_handlers': {
                 event_type: [handler.to_dict() for handler in handlers]
                 for event_type, handlers in self.event_handlers.items()
@@ -234,6 +234,7 @@ class AnalysisResult:
             'priority_score': self.priority_score,
             'severity': self.severity,
             'elapsed_time': self.elapsed_time,
+            'dom_sources': self.dom_sources,
         }
 
     def get_all_occurrences(self) -> List[Occurrence]:
