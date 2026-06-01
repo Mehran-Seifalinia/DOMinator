@@ -5,7 +5,7 @@ Provides functionality for parsing and extracting information from HTML content.
 
 from typing import List, Optional, Tuple
 from bs4 import BeautifulSoup
-from utils.logger import get_logger, warning, debug, error, info
+from utils.logger import get_logger
 from traceback import format_exc
 from re import compile, IGNORECASE
 
@@ -49,7 +49,7 @@ class ScriptExtractor:
             raise TypeError("HTML content must be a non-empty string.")
         
         if len(html) > MAX_HTML_SIZE:
-            error(f"HTML content exceeds maximum size ({MAX_HTML_SIZE} bytes).")
+            logger.error(f"HTML content exceeds maximum size ({MAX_HTML_SIZE} bytes).")
             raise ValueError("HTML content is too large.")
         
         if not self._validate_html(html):
@@ -59,7 +59,7 @@ class ScriptExtractor:
             # Use 'html5lib' for better position tracking and consistency with validation
             self.soup = BeautifulSoup(html, "html5lib")
         except Exception as e:
-            error(f"Error parsing HTML with BeautifulSoup: {str(e)}\n{format_exc()}")
+            logger.error(f"Error parsing HTML with BeautifulSoup: {str(e)}\n{format_exc()}")
             raise ValueError("Failed to parse the HTML content.")
 
     def _validate_html(self, html: str) -> bool:
@@ -81,10 +81,10 @@ class ScriptExtractor:
             parse(html)
             return True
         except ValueError as e:
-            error(f"Invalid HTML content: {str(e)}")
+            logger.error(f"Invalid HTML content: {str(e)}")
             return False
         except Exception as e:
-            error(f"Unexpected error during HTML validation: {str(e)}\n{format_exc()}")
+            logger.error(f"Unexpected error during HTML validation: {str(e)}\n{format_exc()}")
             return False
 
     def extract_inline_scripts(self) -> List[str]:
@@ -105,12 +105,12 @@ class ScriptExtractor:
                     scripts.add(script.string.strip())
             
             if not scripts:
-                debug("No inline scripts found in the HTML.")
+                logger.debug("No inline scripts found in the HTML.")
             
             return list(scripts)
         
         except Exception as e:
-            error(f"Unexpected error extracting inline scripts: {str(e)}\n{format_exc()}")
+            logger.error(f"Unexpected error extracting inline scripts: {str(e)}\n{format_exc()}")
             return []
 
     def get_dangerous_html_elements(self) -> List[Tuple[str, str, str, Optional[int]]]:
@@ -148,12 +148,12 @@ class ScriptExtractor:
                         dangerous_elements.append((tag.name, attr, value, line))
             
             if not dangerous_elements:
-                debug("No dangerous HTML elements found.")
+                logger.debug("No dangerous HTML elements found.")
             
             return dangerous_elements
         
         except Exception as e:
-            error(f"Error extracting dangerous HTML elements: {str(e)}\n{format_exc()}")
+            logger.error(f"Error extracting dangerous HTML elements: {str(e)}\n{format_exc()}")
             return []
 
 if __name__ == "__main__":
@@ -170,4 +170,4 @@ if __name__ == "__main__":
     """
     extractor = ScriptExtractor(sample_html)
     scripts = extractor.extract_inline_scripts()
-    info(f"Extracted inline scripts: {scripts}")
+    logger.info(f"Extracted inline scripts: {scripts}")
