@@ -260,18 +260,10 @@ if __name__ == "__main__":
 # Add this function at the end of the file, after the if __name__ == "__main__" block
 
 def get_default_payloads() -> List[str]:
-    """
-    Return a list of default XSS payloads for DOM injection.
-    
-    Returns:
-        List[str]: List of payload strings
-    """
+    """Return a minimal set of payloads for quick testing."""
     return [
-        "<img src=x onerror=alert(1)>",
-        "<script>alert(1)</script>",
-        "javascript:alert(1)",
-        "\"><img src=x onerror=alert(1)>",
-        "'><img src=x onerror=alert(1)>",
-        "alert(1)",
-        "eval('alert(1)')"
+        "<img src=x onerror=alert(1)>",   # for innerHTML/document.write
+        "<script>alert(1)</script>",      # general script injection
+        "javascript:alert(1)",            # for location-based
+        "alert(1)",                       # for eval
     ]
