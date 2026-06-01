@@ -141,8 +141,10 @@ class DynamicAnalyzer:
                     self.result.add_external_script_risk(occurrence)
                 
         except Exception as e:
-            logger.error(f"Error fetching or processing external scripts: {str(e)}")
-            self.result.set_error(f"Error fetching or processing external scripts: {str(e)}")
+            if "No valid URLs provided" in str(e):
+                logger.debug(f"Skipping external script fetch: {str(e)}")
+            else:
+                logger.error(f"Error fetching or processing external scripts: {str(e)}")
 
     async def execute_in_browser(self) -> None:
         """Execute HTML in a real browser to detect dynamic vulnerabilities."""
