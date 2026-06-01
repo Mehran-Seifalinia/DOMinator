@@ -226,7 +226,7 @@ async def scan_url_async(
             logger.info("Auto-update payloads: Placeholder - implement fetching latest patterns.")
 
         start_time = time()
-        logger.debug(f"Starting analysis of {url}...")
+        logger.info(f"🔍 DOMinator started scanning: {url}")
 
         # Prepare headers
         headers = {}
@@ -247,6 +247,7 @@ async def scan_url_async(
         # ========== CRAWLING AND PER-PAGE ANALYSIS ==========
         visited = set([url])
         pages_to_scan = [(url, html_content)]  # list of (page_url, page_html)
+        logger.info(f"📄 Found {len(pages_to_scan)} page(s) to analyze (depth={max_depth})")
 
         if max_depth > 1:
             crawled_pages = await crawl_links(html_content, url, max_depth, visited, session, timeout, headers)
@@ -313,6 +314,7 @@ async def scan_url_async(
             result.set_completed()
 
             await results_queue.put(result.to_dict())
+            logger.info(f"✓ OK: {page_url}")
             logger.debug(f"Analysis completed for {page_url} in {result.elapsed_time:.2f} seconds")
         # ========== END OF PER-PAGE ANALYSIS ==========
 
