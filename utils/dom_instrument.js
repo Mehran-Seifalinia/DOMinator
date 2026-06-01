@@ -9,8 +9,6 @@
     window.__DOMINATOR_INSTRUMENTED__ = true;
     window.__DOMINATOR_RESULTS__ = [];
 
-    const REPORT_PREFIX = 'DOMINATOR';
-
     function report(sink, source, payloadSuggestion, context) {
         window.__DOMINATOR_RESULTS__.push({
             sink: sink,
@@ -21,24 +19,21 @@
         });
     }
 
-    // Helper: check if a string comes from a user-controllable source
-        function detectSource(value) {
+    function detectSource(value) {
         if (typeof value !== 'string' || value.length === 0) return null;
         
-        const hash = location.hash;      // e.g., "#<img src=x>"
-        const search = location.search;  // e.g., "?code=alert(1)"
+        const hash = location.hash;
+        const search = location.search;
         const referrer = document.referrer;
         const windowName = window.name;
         
-        // Decode URL components once for comparison
         let decodedHash = '';
         let decodedSearch = '';
         try {
             if (hash && hash.length > 1) decodedHash = decodeURIComponent(hash.substring(1));
             if (search && search.length > 1) decodedSearch = decodeURIComponent(search.substring(1));
-        } catch(e) { /* ignore decode errors */ }
+        } catch(e) { }
 
-        // Exact match for query parameter values
         if (search && search.length > 1) {
             const params = new URLSearchParams(search.substring(1));
             for (let [key, val] of params) {
@@ -50,7 +45,6 @@
             }
         }
         
-        // Exact match for hash value
         if (hash && hash.length > 1) {
             const rawHash = hash.substring(1);
             if (value === rawHash) return 'location.hash (exact)';
@@ -60,17 +54,21 @@
             } catch(e) {}
         }
         
-        // Check if value appears in decoded hash or search (after decoding)
-        if (decodedHash && value.indexOf(decodedHash) !== -1) return 'location.hash';
-        if (decodedSearch && value.indexOf(decodedSearch) !== -1) return 'location.search';
+        if (decodedHash.length > 0 && value.indexOf(decodedHash) !== -1) return 'location.hash (substring)';
+        if (decodedSearch.length > 0 && value.indexOf(decodedSearch) !== -1) return 'location.search (substring)';
         
-        // Also check raw (encoded) versions as fallback
-        if (hash && hash.length > 1 && value.indexOf(hash.substring(1)) !== -1) return 'location.hash';
-        if (search && search.length > 1 && value.indexOf(search.substring(1)) !== -1) return 'location.search';
+        const rawHash = hash && hash.length > 1 ? hash.substring(1) : '';
+        const rawSearch = search && search.length > 1 ? search.substring(1) : '';
+        if (rawHash.length > 0 && value.indexOf(rawHash) !== -1) return 'location.hash (raw substring)';
+        if (rawSearch.length > 0 && value.indexOf(rawSearch) !== -1) return 'location.search (raw substring)';
         
-        // Check other sources
-        if (windowName && value.indexOf(windowName) !== -1) return 'window.name';
-        if (referrer && value.indexOf(referrer) !== -1) return 'document.referrer';
+        if (windowName && windowName.length > 0 && value.indexOf(windowName) !== -1) return 'window.name';
+        if (referrer && referrer.length > 0 && value.indexOf(referrer) !== -1) return 'document.referrer';
+        
+        const currentUrl = document.URL;
+        const currentHref = location.href;
+        if (currentUrl && currentUrl.length > 0 && value.indexOf(currentUrl) !== -1) return 'document.URL';
+        if (currentHref && currentHref.length > 0 && value.indexOf(currentHref) !== -1) return 'location.href';
         
         return null;
     }
@@ -87,6 +85,30 @@
                 return originalInnerHTMLDescriptor.set.call(this, value);
             },
             get: originalInnerHTMLDescriptor.get,
+            configurable: true
+        });
+    } else {
+        Element.prototype.__defineSetter__('innerHTML', function(value) {
+            const source = detectSource(value);
+            if (source) {
+                report('innerHTML', source, '<img src=x onerror=alert(1)>', `innerHTML set to: ${value.substring(0, 80)}`);
+            }
+            this.innerHTML = value;
+        });
+    }
+
+    // Hook Element.prototype.outerHTML setter
+    const originalOuterHTMLDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'outerHTML');
+    if (originalOuterHTMLDescriptor && originalOuterHTMLDescriptor.set) {
+        Object.defineProperty(Element.prototype, 'outerHTML', {
+            set: function(value) {
+                const source = detectSource(value);
+                if (source) {
+                    report('outerHTML', source, '<img src=x onerror=alert(1)>', `outerHTML set to: ${value.substring(0, 80)}`);
+                }
+                return originalOuterHTMLDescriptor.set.call(this, value);
+            },
+            get: originalOuterHTMLDescriptor.get,
             configurable: true
         });
     }
@@ -124,6 +146,16 @@
         return originalEval.call(window, code);
     };
 
+    // Hook Element.prototype.insertAdjacentHTML
+    const originalInsertAdjacentHTML = Element.prototype.insertAdjacentHTML;
+    Element.prototype.insertAdjacentHTML = function(position, html) {
+        const source = detectSource(html);
+        if (source) {
+            report('insertAdjacentHTML', source, '<img src=x onerror=alert(1)>', `insertAdjacentHTML with: ${html.substring(0, 80)}`);
+        }
+        return originalInsertAdjacentHTML.call(this, position, html);
+    };
+
     // Hook iframe srcdoc attribute (setAttribute and direct property)
     const originalSetAttribute = Element.prototype.setAttribute;
     Element.prototype.setAttribute = function(name, value) {
@@ -153,17 +185,22 @@
         });
     }
 
-    // Hook Function constructor
+    // Hook Function constructor (حفظ new)
     const originalFunction = window.Function;
-    window.Function = function(...args) {
+    function HookedFunction(...args) {
         const body = args.pop();
         const strBody = String(body);
         const source = detectSource(strBody);
         if (source) {
             report('Function', source, 'alert(1)', `new Function with body: ${strBody.substring(0, 80)}`);
         }
-        return originalFunction.apply(this, args.concat(body));
-    };
+        if (new.target) {
+            return new originalFunction(...args, body);
+        }
+        return originalFunction(...args, body);
+    }
+    HookedFunction.prototype = originalFunction.prototype;
+    window.Function = HookedFunction;
 
     // Hook setTimeout/setInterval with string argument
     const originalSetTimeout = window.setTimeout;
@@ -187,33 +224,35 @@
         return originalSetInterval.call(this, handler, timeout, ...args);
     };
 
-    // Hook location.hash / location.href setter? We could monitor assignment to location = '...' 
-    // But it's complex; we'll rely on sinks that use those values after page load.
-    // However, we can also observe direct location assignment by replacing the property.
-    // For simplicity, we skip assignment hooks; instead we detect when a sink uses a source value.
-
-    // Hook postMessage listener to detect incoming messages (source = postMessage)
-    const originalAddEventListener = EventTarget.prototype.addEventListener;
-    EventTarget.prototype.addEventListener = function(type, listener, options) {
-        if (type === 'message') {
-            // Wrap listener to capture data
-            const wrappedListener = function(event) {
-                if (event.data && typeof event.data === 'string') {
-                    // Not a sink directly, but we can later see if event.data flows to sink.
-                    // We'll just store as potential source.
-                    window.__DOMINATOR_MESSAGE_DATA__ = event.data;
-                } else if (event.data && typeof event.data === 'object') {
-                    window.__DOMINATOR_MESSAGE_DATA__ = JSON.stringify(event.data);
+    // Hook location.href setter and location.assign
+    const locationProto = window.location.constructor.prototype;
+    // location.href setter
+    const hrefDescriptor = Object.getOwnPropertyDescriptor(locationProto, 'href');
+    if (hrefDescriptor && hrefDescriptor.set) {
+        Object.defineProperty(locationProto, 'href', {
+            set: function(value) {
+                const source = detectSource(value);
+                if (source) {
+                    report('location.href', source, 'javascript:alert(1)', `location.href set to: ${value.substring(0, 80)}`);
                 }
-                return listener.call(this, event);
-            };
-            return originalAddEventListener.call(this, type, wrappedListener, options);
-        }
-        return originalAddEventListener.call(this, type, listener, options);
-    };
+                return hrefDescriptor.set.call(this, value);
+            },
+            get: hrefDescriptor.get,
+            configurable: true
+        });
+    }
+    // location.assign
+    const originalAssign = locationProto.assign;
+    if (originalAssign) {
+        locationProto.assign = function(url) {
+            const source = detectSource(url);
+            if (source) {
+                report('location.assign', source, 'javascript:alert(1)', `location.assign called with: ${url.substring(0, 80)}`);
+            }
+            return originalAssign.call(this, url);
+        };
+    }
 
-    // Also hook window.name setter? We detect via detectSource when sink uses window.name.
-    // That's already covered.
 
     console.log('DOMinator instrumentation loaded.');
 })();
