@@ -71,7 +71,7 @@ class PriorityManager:
         self.risk_levels = {
             RiskLevel.EVAL: {"base": 15, "weight": 2.0},
             RiskLevel.DOCUMENT_WRITE: {"base": 9, "weight": 1.5},
-            RiskLevel.INNER_HTML: {"base": 8, "weight": 1.4},
+            RiskLevel.INNER_HTML: {"base": 12, "weight": 1.6},
             RiskLevel.SET_TIMEOUT: {"base": 6, "weight": 1.1},
             RiskLevel.SET_INTERVAL: {"base": 6, "weight": 1.1},
             RiskLevel.LOCATION: {"base": 5, "weight": 1.0},
@@ -326,6 +326,8 @@ class PriorityManager:
                     methods_set.add(RiskLevel.LOCAL_STORAGE)
                 if "postmessage" in result_lower:
                     methods_set.add(RiskLevel.POST_MESSAGE)
+                if "srcdoc" in result_lower:
+                    methods_set.add(RiskLevel.INNER_HTML)
             score = self.calculate_method_score(list(methods_set))
             self.logger.debug("Processed DOM results with score: %.2f", score)
             return score
