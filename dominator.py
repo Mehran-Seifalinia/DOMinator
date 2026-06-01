@@ -138,43 +138,40 @@ async def extract_external_scripts(html_content: str, base_url: str) -> Set[str]
 
 async def crawl_links(html_content: str, base_url: str, max_depth: int, visited: Set[str], session: ClientSession, timeout: int, headers: Dict[str, str], depth: int = 0) -> List[Tuple[str, str]]:
     """
-    Basic recursive crawler to find additional URLs up to max_depth.
-    
-    Args:
-        html_content (str): Current HTML content
-        base_url (str): Base URL
-        max_depth (int): Maximum depth
-        visited (Set[str]): Visited URLs to avoid cycles
-        session (ClientSession): aiohttp session
-        timeout (int): Request timeout
-        headers (Dict[str, str]): Request headers
-        depth (int): Current depth
-        
-    Returns:
-        List[str]: List of additional HTML contents from crawled links
+    Basic iterative crawler to find additional URLs up to max_depth using BFS.
     """
+    from collections import deque
     
-    if depth >= max_depth:
+    if max_depth <= 1:
         return []
     
-    try:
-        soup = BeautifulSoup(html_content, "html.parser")
-        additional_pages = []
-        for link in soup.find_all("a", href=True):
-            href = link.get("href")
-            if href:
-                full_url = urljoin(base_url, href)
-                if full_url in visited:
-                    continue
-                visited.add(full_url)
-                child_html = await fetch_html(full_url, session, timeout, headers)
-                if child_html:
-                    additional_pages.append((full_url, child_html))
-                    additional_pages.extend(await crawl_links(child_html, full_url, max_depth, visited, session, timeout, headers, depth + 1))
-        return additional_pages
-    except Exception as e:
-        logger.error(f"Error during crawling: {str(e)}")
-        return []
+    queue = deque()
+    queue.append((base_url, html_content, depth))
+    all_pages = []
+    
+    while queue:
+        current_url, current_html, current_depth = queue.popleft()
+        
+        if current_depth >= max_depth:
+            continue
+        
+        try:
+            soup = BeautifulSoup(current_html, "html.parser")
+            for link in soup.find_all("a", href=True):
+                href = link.get("href")
+                if href:
+                    full_url = urljoin(current_url, href)
+                    if full_url in visited:
+                        continue
+                    visited.add(full_url)
+                    child_html = await fetch_html(full_url, session, timeout, headers)
+                    if child_html:
+                        all_pages.append((full_url, child_html))
+                        queue.append((full_url, child_html, current_depth + 1))
+        except Exception as e:
+            logger.error(f"Error during crawling: {str(e)}")
+    
+    return all_pages
 
 async def scan_url_async(
     url: str,
