@@ -286,7 +286,7 @@ class DynamicAnalyzer:
             fetcher = ExternalFetcher(self.external_urls)
             await fetcher.fetch_and_process_scripts()
             
-            analysis_results = await fetcher.get_analysis_results()
+            analysis_results = fetcher.get_analysis_results()
             for res in analysis_results:
                 # Aggregate risks from event_listeners, risky_functions, sources, sinks
                 risks = res.event_listeners + res.risky_functions + res.sources + res.sinks
