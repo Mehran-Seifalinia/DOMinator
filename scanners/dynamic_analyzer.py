@@ -108,7 +108,7 @@ class DynamicAnalyzer:
                     "column": None,
                     "pattern": f"{sink} (source: {source})",
                     "context": f"[{sink}] {context}",
-                    "risk_level": "high",
+                    "risk_level": "informative",
                     "priority": self.priority_manager.get_priority_from_risk_level("high"),
                     "source": "dynamic"
                 }
