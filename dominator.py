@@ -277,30 +277,21 @@ async def scan_url_async(
             result.merge_static_results(static_occurrences)
 
             # Dynamic analysis - only if static analysis found something interesting
-            has_risk = bool(result.static_occurrences) or bool(result.event_handlers)
-            
-            if not has_risk:
-                if verbose:
-                    logger.info(f"Skipping dynamic analysis for {page_url}: no risky sinks found statically.")
-                # Still create empty dynamic result
-                dynamic_result = AnalysisResult()
-                result.merge_dynamic_results(dynamic_result)
-            else:
-                if verbose:
-                    logger.info(f"Running dynamic analysis for {page_url} at level {level}...")
-                sink_patterns = [occ.get('pattern', '') for occ in result.static_occurrences]
-                dynamic_analyzer = DynamicAnalyzer(
-                    html_content=page_html,
-                    url=page_url,
-                    external_urls=list(external_urls),
-                    headless=headless,
-                    user_agent=user_agent,
-                    payloads=get_default_payloads(),
-                    sink_types=sink_patterns,
-                    dom_sources=result.dom_sources
-                )
-                dynamic_result = await dynamic_analyzer.run_analysis()
-                result.merge_dynamic_results(dynamic_result)
+            if verbose:
+                logger.info(f"Running dynamic analysis for {page_url} at level {level}...")
+            sink_patterns = [occ.get('pattern', '') for occ in result.static_occurrences]
+            dynamic_analyzer = DynamicAnalyzer(
+                html_content=page_html,
+                url=page_url,
+                external_urls=list(external_urls),
+                headless=headless,
+                user_agent=user_agent,
+                payloads=get_default_payloads(),
+                sink_types=sink_patterns,
+                dom_sources=result.dom_sources
+            )
+            dynamic_result = await dynamic_analyzer.run_analysis()
+            result.merge_dynamic_results(dynamic_result)
 
             # Risk calculation
             if verbose:
