@@ -178,7 +178,7 @@ class DynamicAnalyzer:
         
         logger.debug(f"Testing payload in {inject_in}: {test_url}")
         try:
-            await page.goto(test_url, wait_until='networkidle', timeout=5000)
+            await page.goto(test_url, wait_until='networkidle', timeout=3000)
             dialog_msg = await self._check_for_alert(page, timeout=1500)
             if dialog_msg and 'alert' in dialog_msg.lower():
                 # Record successful exploitation
@@ -300,18 +300,14 @@ class DynamicAnalyzer:
                     selected_payloads = []
                     if 'innerhtml' in sink_lower or 'outerhtml' in sink_lower or 'document.write' in sink_lower:
                         selected_payloads.append('<img src=x onerror=alert(1)>')
-                        selected_payloads.append('"><img src=x onerror=alert(1)>')
                     if 'eval' in sink_lower or 'settimeout' in sink_lower or 'setinterval' in sink_lower:
                         selected_payloads.append('alert(1)')
-                        selected_payloads.append("eval('alert(1)')")
                     if 'location' in sink_lower:
                         selected_payloads.append('javascript:alert(1)')
-                    # Always test a basic script tag if any sink is present
-                    if selected_payloads:
-                        selected_payloads.append('<script>alert(1)</script>')
-                    else:
-                        # fallback to default payloads if no specific sink matched
-                        selected_payloads = self.payloads[:3]  # only first few to save time
+                    if not selected_payloads and self.sink_types:
+                        selected_payloads = ['<script>alert(1)</script>']
+                    
+                    selected_payloads = selected_payloads[:2]
                     
                     logger.debug(f"Selected {len(selected_payloads)} payloads for {self.url} based on sinks: {self.sink_types}")
                     
