@@ -155,110 +155,81 @@ class DynamicAnalyzer:
             page (Page): Playwright page
             base_url (str): Original URL
             payload (str): XSS payload
-            inject_in (str): 'hash' or 'query' or 'both'
+            inject_in (str): 'hash' or 'query'
             
         Returns:
             bool: True if alert was detected
         """
-        test_url = base_url
+        # Build test URLs based on inject_in
+        test_urls = []
         if inject_in == 'hash':
-            # Replace or append to hash
             if '#' in base_url:
-                test_url = base_url.split('#')[0] + '#' + payload
+                test_urls.append(base_url.split('#')[0] + '#' + payload)
             else:
-                test_url = base_url + '#' + payload
+                test_urls.append(base_url + '#' + payload)
         elif inject_in == 'query':
             from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
             parsed = urlparse(base_url)
             query_dict = parse_qs(parsed.query)
-            
-            # If there are existing query parameters, replace each parameter's value with payload
-            # (to handle pages that read specific param like 'code', 'name', etc.)
-            # Limit to first 2 parameters to avoid too many requests
             if query_dict:
-                # Create a list of test URLs: one per existing parameter
-                test_urls = []
+                # Test each existing parameter (max 2)
                 params_list = list(query_dict.keys())
-                # Limit to first 2 parameters
-                for i, param in enumerate(params_list[:2]):
-                    new_query_dict = {param: [payload]}
-                    # Keep other parameters unchanged? Better to keep them to avoid breaking functionality
-                    # Actually, we should replace only the target param and keep others as-is
+                for param in params_list[:2]:
+                    new_query_dict = {}
                     for other_param, values in query_dict.items():
-                        if other_param != param:
+                        if other_param == param:
+                            new_query_dict[param] = [payload]
+                        else:
                             new_query_dict[other_param] = values
                     new_query = urlencode(new_query_dict, doseq=True)
                     test_urls.append(urlunparse(parsed._replace(query=new_query)))
-                # Also test adding 'xss' as fallback (original behavior)
+                # Fallback: add xss parameter
                 query_dict['xss'] = [payload]
                 new_query = urlencode(query_dict, doseq=True)
                 test_urls.append(urlunparse(parsed._replace(query=new_query)))
-                
-                # Test each URL (limit to 3 total)
-                for url_tmp in test_urls[:3]:
-                    logger.debug(f"Testing payload in query variant: {url_tmp}")
-                    try:
-                        await page.goto(url_tmp, wait_until='networkidle', timeout=2000)
-                        dialog_msg = await self._check_for_alert(page, timeout=1500)
-                        if dialog_msg and 'alert' in dialog_msg.lower():
-                            # Record successful exploitation
-                            occurrence: Occurrence = {
-                                "line": None,
-                                "column": None,
-                                "pattern": f"DOM XSS via query parameter injection",
-                                "context": f"Payload: {payload} triggered alert: {dialog_msg}",
-                                "risk_level": "high",
-                                "priority": 90,
-                                "source": "dynamic"
-                            }
-                            self.result.add_dynamic_occurrence(occurrence)
-                            return True
-                    except Exception as e:
-                        logger.debug(f"Error testing query variant: {e}")
-                return False
             else:
-                # No existing parameters, add 'xss'
-                query_dict['xss'] = [payload]
-                new_query = urlencode(query_dict, doseq=True)
-                test_url = urlunparse(parsed._replace(query=new_query))
-                logger.debug(f"Testing payload in query (new param): {test_url}")
-        try:
-            # Set up dialog listener BEFORE navigation
-            dialog_msg = None
-            async def on_dialog(dialog):
-                nonlocal dialog_msg
-                dialog_msg = dialog.message
-                await dialog.dismiss()
-            page.on('dialog', on_dialog)
-            
-            # Navigate to the test URL
-            await page.goto(test_url, wait_until='networkidle', timeout=3000)
-            
-            # Wait a short time for any dialog that might have appeared during/after load
-            await page.wait_for_timeout(1000)
-            
-            # Remove listener
-            page.remove_listener('dialog', on_dialog)
-            
-            if dialog_msg and 'alert' in dialog_msg.lower():
-                occurrence: Occurrence = {
-                    "line": None,
-                    "column": None,
-                    "pattern": f"DOM XSS via {inject_in} injection",
-                    "context": f"Payload: {payload} triggered alert: {dialog_msg}",
-                    "risk_level": "high",
-                    "priority": 90,
-                    "source": "dynamic"
-                }
-                self.result.add_dynamic_occurrence(occurrence)
-                return True
-        except Exception as e:
-            logger.debug(f"Error testing payload {payload}: {e}")
-            # Ensure listener is removed even on error
+                # No existing params, add xss
+                test_urls.append(base_url + '?xss=' + urlencode({None: payload})[2:])  # quick way
+                # Better:
+                test_urls.append(urlunparse(parsed._replace(query=f"xss={payload}")))
+        else:
+            return False
+        
+        # Test each URL
+        for test_url in test_urls[:3]:  # limit to 3 variants
+            logger.debug(f"Testing payload in {inject_in}: {test_url}")
             try:
+                # Set up dialog listener BEFORE navigation
+                dialog_msg = None
+                async def on_dialog(dialog):
+                    nonlocal dialog_msg
+                    dialog_msg = dialog.message
+                    await dialog.dismiss()
+                page.on('dialog', on_dialog)
+                
+                await page.goto(test_url, wait_until='networkidle', timeout=3000)
+                await page.wait_for_timeout(1000)  # extra time for delayed alerts
+                
                 page.remove_listener('dialog', on_dialog)
-            except:
-                pass
+                
+                if dialog_msg and 'alert' in dialog_msg.lower():
+                    occurrence: Occurrence = {
+                        "line": None,
+                        "column": None,
+                        "pattern": f"DOM XSS via {inject_in} injection",
+                        "context": f"Payload: {payload} triggered alert: {dialog_msg}",
+                        "risk_level": "high",
+                        "priority": 90,
+                        "source": "dynamic"
+                    }
+                    self.result.add_dynamic_occurrence(occurrence)
+                    return True
+            except Exception as e:
+                logger.debug(f"Error testing URL {test_url}: {e}")
+                try:
+                    page.remove_listener('dialog', on_dialog)
+                except:
+                    pass
         return False
     
     async def _click_buttons_and_check(self, page: Page) -> None:
@@ -267,13 +238,23 @@ class DynamicAnalyzer:
         then check for alerts.
         """
         try:
-            # Find all elements with onclick attribute
             elements = await page.query_selector_all('[onclick]')
             logger.debug(f"Found {len(elements)} elements with onclick attribute")
             for elem in elements:
                 try:
+                    # Set up dialog listener BEFORE click
+                    dialog_msg = None
+                    async def on_dialog(dialog):
+                        nonlocal dialog_msg
+                        dialog_msg = dialog.message
+                        await dialog.dismiss()
+                    page.on('dialog', on_dialog)
+                    
                     await elem.click()
-                    dialog_msg = await self._check_for_alert(page, timeout=1000)
+                    await page.wait_for_timeout(1500)  # wait for potential alert
+                    
+                    page.remove_listener('dialog', on_dialog)
+                    
                     if dialog_msg:
                         occurrence: Occurrence = {
                             "line": None,
@@ -285,10 +266,12 @@ class DynamicAnalyzer:
                             "source": "dynamic"
                         }
                         self.result.add_dynamic_occurrence(occurrence)
-                    # Wait a bit after click to let any delayed payload run
-                    await page.wait_for_timeout(500)
                 except Exception as e:
                     logger.debug(f"Error clicking element: {e}")
+                    try:
+                        page.remove_listener('dialog', on_dialog)
+                    except:
+                        pass
         except Exception as e:
             logger.error(f"Error in click simulation: {e}")
 
