@@ -802,9 +802,6 @@ async def main() -> None:
                 args.max_depth, args.auto_update,
                 args.report_format, session
             )
-
-    # Limit concurrent threads
-    semaphore = Semaphore(args.threads)
     
     # Configure client session
     timeout = ClientTimeout(total=args.timeout)
