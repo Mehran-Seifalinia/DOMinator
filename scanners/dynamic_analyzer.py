@@ -389,7 +389,8 @@ class DynamicAnalyzer:
                                 if p not in relevant_payloads:
                                     relevant_payloads.append(p)
                         elif 'eval' in sink_lower or 'settimeout' in sink_lower or 'setinterval' in sink_lower:
-                            if 'alert(' in p_lower:
+                            # For eval, only pure JS payloads without HTML tags
+                            if ('alert(' in p_lower or 'confirm(' in p_lower or 'prompt(' in p_lower) and '<' not in p_lower and '>' not in p_lower:
                                 if p not in relevant_payloads:
                                     relevant_payloads.append(p)
                         elif 'location' in sink_lower:
@@ -398,7 +399,7 @@ class DynamicAnalyzer:
                                     relevant_payloads.append(p)
                     
                     # If no matching payload found for a critical sink, add a default one
-                    if 'eval' in sink_lower and not any('alert(' in p.lower() for p in relevant_payloads):
+                    if 'eval' in sink_lower and not any(('alert(' in p.lower() or 'confirm(' in p.lower()) and '<' not in p.lower() for p in relevant_payloads):
                         relevant_payloads.append('alert(1)')
                     if ('innerhtml' in sink_lower or 'document.write' in sink_lower) and not any('<img' in p.lower() or '<script' in p.lower() for p in relevant_payloads):
                         relevant_payloads.append('<img src=x onerror=alert(1)>')
