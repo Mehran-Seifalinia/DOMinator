@@ -188,7 +188,8 @@ async def scan_url_async(
     max_depth: int,
     auto_update: bool,
     report_format: str,
-    session: ClientSession
+    session: ClientSession,
+    shared_browser = None
 ) -> None:
     """
     Scan a single URL for DOM XSS vulnerabilities, with optional crawling.
@@ -283,7 +284,8 @@ async def scan_url_async(
                 payloads=get_default_payloads(),
                 sink_types=sink_patterns,
                 dom_sources=result.dom_sources,
-                timeout=timeout
+                timeout=timeout,
+                browser=shared_browser
             )
             dynamic_result = await dynamic_analyzer.run_analysis()
             result.merge_dynamic_results(dynamic_result)
@@ -810,8 +812,29 @@ async def main() -> None:
         session_kwargs["proxy"] = args.proxy
 
     async with ClientSession(**session_kwargs) as session:
-        tasks = [limited_scan_url(url) for url in args.url]
-        await gather(*tasks)
+        from playwright.async_api import async_playwright
+        playwright = await async_playwright().start()
+        shared_browser = await playwright.chromium.launch(
+            headless=headless_mode,
+            args=['--no-sandbox'] if not headless_mode else ['--sandbox']
+        )
+        try:
+            async def limited_scan_url(url):
+                async with semaphore:
+                    await scan_url_async(
+                        url, args.level, results_queue, args.timeout,
+                        args.proxy, args.verbose, args.blacklist,
+                        args.no_external, headless_mode,
+                        args.user_agent, args.cookie,
+                        args.max_depth, args.auto_update,
+                        args.report_format, session,
+                        shared_browser=shared_browser
+                    )
+            tasks = [limited_scan_url(url) for url in args.url]
+            await gather(*tasks)
+        finally:
+            await shared_browser.close()
+            await playwright.stop()
 
     results = []
     while not results_queue.empty():
