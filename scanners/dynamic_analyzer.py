@@ -37,7 +37,8 @@ class DynamicAnalyzer:
         user_agent: Optional[str] = None,
         url: Optional[str] = None,
         payloads: Optional[List[str]] = None,
-        sink_types: Optional[List[str]] = None
+        sink_types: Optional[List[str]] = None,
+        dom_sources: Optional[List[str]] = None
     ) -> None:
         """
         Initialize the DynamicAnalyzer with HTML content and external URLs.
@@ -66,6 +67,7 @@ class DynamicAnalyzer:
         self.url = url
         self.payloads = payloads if payloads else []   # store payloads
         self.sink_types = sink_types if sink_types else []
+        self.dom_sources = dom_sources if dom_sources else []
 
 
     async def analyze_event_handlers(self) -> None:
@@ -288,49 +290,65 @@ class DynamicAnalyzer:
                 else:
                     logger.warning(f"Instrumentation script not found at {INSTRUMENT_SCRIPT_PATH}")
 
-                # Case 1: We have a real URL - test with payloads
                 # Case 1: We have a real URL - test with payloads only if sink_types indicate risk
                 if self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
                     # First load clean page to set up any initial state
                     await page.goto(self.url, wait_until='networkidle')
                     await self._click_buttons_and_check(page)
                     
-                    # Determine which payloads to use based on sink types
+                    # Determine which injection points to test based on DOM sources
+                    inject_locations = set()
+                    for src in self.dom_sources:
+                        src_lower = src.lower()
+                        if 'hash' in src_lower:
+                            inject_locations.add('hash')
+                        if 'search' in src_lower or '? ' in src_lower or 'query' in src_lower:
+                            inject_locations.add('query')
+                        if 'href' in src_lower or 'url' in src_lower:
+                            # For href/URL, test both? but to be safe, add both
+                            inject_locations.add('hash')
+                            inject_locations.add('query')
+                    
+                    # If no specific source found, default to testing hash only (more common for DOM XSS)
+                    if not inject_locations:
+                        inject_locations.add('hash')
+                    
+                    # Filter payloads based on sink types (only relevant ones)
                     sink_lower = ' '.join([s.lower() for s in self.sink_types])
-                    selected_payloads = []
-                    if 'innerhtml' in sink_lower or 'outerhtml' in sink_lower or 'document.write' in sink_lower:
-                        selected_payloads.append('<img src=x onerror=alert(1)>')
-                    if 'eval' in sink_lower or 'settimeout' in sink_lower or 'setinterval' in sink_lower:
-                        selected_payloads.append('alert(1)')
-                    if 'location' in sink_lower:
-                        selected_payloads.append('javascript:alert(1)')
-                    if not selected_payloads and self.sink_types:
-                        selected_payloads = ['<script>alert(1)</script>']
+                    relevant_payloads = []
+                    for p in self.payloads:
+                        p_lower = p.lower()
+                        if 'innerhtml' in sink_lower or 'outerhtml' in sink_lower or 'document.write' in sink_lower:
+                            if '<img' in p_lower or '<script' in p_lower or 'onerror' in p_lower:
+                                relevant_payloads.append(p)
+                        elif 'eval' in sink_lower or 'settimeout' in sink_lower or 'setinterval' in sink_lower:
+                            if 'alert(' in p_lower:
+                                relevant_payloads.append(p)
+                        elif 'location' in sink_lower:
+                            if 'javascript:' in p_lower:
+                                relevant_payloads.append(p)
+                        else:
+                            # default: include first two payloads
+                            if len(relevant_payloads) < 2 and p not in relevant_payloads:
+                                relevant_payloads.append(p)
                     
-                    selected_payloads = selected_payloads[:2]
+                    # Limit to max 2 payloads per page for speed
+                    relevant_payloads = relevant_payloads[:2]
+                    if not relevant_payloads and self.payloads:
+                        relevant_payloads = self.payloads[:2]
                     
-                    logger.debug(f"Selected {len(selected_payloads)} payloads for {self.url} based on sinks: {self.sink_types}")
+                    logger.debug(f"Testing {len(relevant_payloads)} payloads for {self.url} in locations: {inject_locations}")
                     
-                    for payload in selected_payloads:
-                        await self._test_url_with_payload(page, self.url, payload, 'hash')
-                        await self._test_url_with_payload(page, self.url, payload, 'query')
+                    # Test each payload only in relevant injection locations
+                    for payload in relevant_payloads:
+                        for loc in inject_locations:
+                            await self._test_url_with_payload(page, self.url, payload, loc)
                     
-                    # Also test the original __DOMINATOR_TEST__ for compatibility (optional)
-                    test_url = self.url + '#__DOMINATOR_TEST__'
-                    await page.goto(test_url, wait_until='networkidle')
-                    await self._click_buttons_and_check(page)
-                    
-                    # Test each payload in hash and query
-                    for payload in self.payloads:
-                        # Test in hash
-                        await self._test_url_with_payload(page, self.url, payload, 'hash')
-                        # Test in query (if URL has query parameters or we add one)
-                        await self._test_url_with_payload(page, self.url, payload, 'query')
-                    
-                    # Also test the original __DOMINATOR_TEST__ for compatibility
-                    test_url = self.url + '#__DOMINATOR_TEST__'
-                    await page.goto(test_url, wait_until='networkidle')
-                    await self._click_buttons_and_check(page)
+                    # Also test the original __DOMINATOR_TEST__ for compatibility (optional) - only if hash is relevant
+                    if 'hash' in inject_locations:
+                        test_url = self.url + '#__DOMINATOR_TEST__'
+                        await page.goto(test_url, wait_until='networkidle')
+                        await self._click_buttons_and_check(page)
                 
                 # Case 2: Offline HTML content
                 else:
