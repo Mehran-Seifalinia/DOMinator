@@ -77,9 +77,10 @@ python dominator.py -u https://example.com -l 3 -t 4 -o results.json -r json --h
 | `-r, --report-format` | Report format (`json`, `html`, `csv`) |
 | `-p, --proxy` | Set proxy for HTTP requests |
 | `-v, --verbose` | Enable verbose output |
+| `-q, --quiet` | Suppress all info logs, show only final report |
 | `-b, --blacklist` | Comma-separated list of URLs to exclude |
 | `--no-external` | Skip external JavaScript files |
-| `--headless` | Enable headless browser mode |
+| `--visible` | Show the browser window (disable headless mode) |
 | `--user-agent` | Set custom User-Agent |
 | `--cookie` | Send custom cookies |
 | `--max-depth` | Set maximum crawling depth |
