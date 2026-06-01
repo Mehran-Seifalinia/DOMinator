@@ -213,10 +213,7 @@ async def scan_url_async(
         report_format (str): Report format
         session (ClientSession): aiohttp session
     """
-    try:
-        if verbose:
-            logger.setLevel("DEBUG")  # Enable verbose logging if flag set
-        
+    try:        
         if blacklist:
             blacklist_urls = [bl.strip() for bl in blacklist.split(',')]
             if any(url == bl_url for bl_url in blacklist_urls):  # Exact match for blacklist
