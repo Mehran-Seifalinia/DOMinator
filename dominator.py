@@ -250,7 +250,7 @@ async def scan_url_async(
         if max_depth > 1:
             crawled_pages = await crawl_links(html_content, url, max_depth, visited, session, timeout, headers)
             pages_to_scan.extend(crawled_pages)
-            logger.info(f"Crawled total {len(pages_to_scan)} pages from {url}")
+            logger.debug(f"Crawled total {len(pages_to_scan)} pages from {url}")
 
         # Analyze each page separately
         for page_url, page_html in pages_to_scan:
@@ -267,14 +267,14 @@ async def scan_url_async(
 
             # Static analysis
             if verbose:
-                logger.info(f"Running static analysis for {page_url} at level {level}...")
+                logger.debug(f"Running static analysis for {page_url} at level {level}...")
             static_analyzer = StaticAnalyzer(page_html)
             static_occurrences = static_analyzer.analyze()
             result.merge_static_results(static_occurrences)
 
             # Dynamic analysis
             if verbose:
-                logger.info(f"Running dynamic analysis for {page_url} at level {level}...")
+                logger.debug(f"Running dynamic analysis for {page_url} at level {level}...")
             dynamic_analyzer = DynamicAnalyzer(
                 html_content=page_html,
                 url=page_url,
@@ -287,7 +287,7 @@ async def scan_url_async(
 
             # Risk calculation
             if verbose:
-                logger.info(f"Calculating risk scores for {page_url}...")
+                logger.debug(f"Calculating risk scores for {page_url}...")
             priority_manager = PriorityManager()
             methods = []
             static_patterns = [occ['pattern'] for occ in result.static_occurrences]
@@ -312,7 +312,7 @@ async def scan_url_async(
             result.set_completed()
 
             await results_queue.put(result.to_dict())
-            logger.info(f"Analysis completed for {page_url} in {result.elapsed_time:.2f} seconds")
+            logger.debug(f"Analysis completed for {page_url} in {result.elapsed_time:.2f} seconds")
         # ========== END OF PER-PAGE ANALYSIS ==========
 
     except Exception as e:
@@ -743,7 +743,7 @@ async def main() -> None:
     Main entry point for the application.
     """
     args = parse_args()
-    from logging import basicConfig, WARNING, DEBUG, INFO, getLogger, root
+    from logging import WARNING, DEBUG, INFO, getLogger, root
     from utils.logger import set_console_level
     if args.quiet:
         # Set console handler to WARNING (suppress INFO and DEBUG)
