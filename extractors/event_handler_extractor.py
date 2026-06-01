@@ -90,8 +90,8 @@ class EventHandlerExtractor:
                         tag=str(tag.name),
                         attribute=attr_name_lower,
                         handler=str(attr_value),
-                        line=line if line is not None else "Unknown",
-                        column=column if column is not None else "Unknown",
+                        line=line if line is not None else None,
+                        column=column if column is not None else None,
                         risk_level=risk_level
                     )
                     event_handlers[attr_name_lower].append(handler)
