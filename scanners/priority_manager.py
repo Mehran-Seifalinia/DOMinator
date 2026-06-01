@@ -144,7 +144,7 @@ class PriorityManager:
                 if method not in self.risk_levels:
                     raise ValueError(f"Invalid RiskLevel: {method}")
                 score += self.risk_levels[method]["base"] * self.risk_levels[method]["weight"]
-            self.logger.info("Calculated method score: %.2f", score)
+            self.logger.debug("Calculated method score: %.2f", score)
             return score
         except ValueError as e:
             self.logger.error("ValueError in method score calculation: %s", str(e))
@@ -171,7 +171,7 @@ class PriorityManager:
             if complexity not in self.exploit_complexity:
                 raise ValueError(f"Invalid ExploitComplexity: {complexity}")
             score = self.exploit_complexity[complexity]["score"]
-            self.logger.info("Calculated complexity score: %.2f", score)
+            self.logger.debug("Calculated complexity score: %.2f", score)
             return score
         except ValueError as e:
             self.logger.error("ValueError in complexity score calculation: %s", str(e))
@@ -199,7 +199,7 @@ class PriorityManager:
                 raise ValueError(f"Invalid AttackVector: {attack_vector}")
             data = self.attack_vectors[attack_vector]
             score = data["risk"] * data["multiplier"]
-            self.logger.info("Calculated attack vector score: %.2f", score)
+            self.logger.debug("Calculated attack vector score: %.2f", score)
             return score
         except ValueError as e:
             self.logger.error("ValueError in attack vector score calculation: %s", str(e))
@@ -227,7 +227,7 @@ class PriorityManager:
             for pair, pair_risk in self.combination_risk.items():
                 if all(m in methods for m in pair):
                     risk += pair_risk * 1.2
-            self.logger.info("Calculated combination risk: %.2f", risk)
+            self.logger.debug("Calculated combination risk: %.2f", risk)
             return round(risk, 2)
         except ValueError as e:
             self.logger.error("ValueError in combination risk calculation: %s", str(e))
@@ -257,7 +257,7 @@ class PriorityManager:
                     raise ValueError(f"Invalid SecurityMechanisms: {m}")
                 total_reduction += self.security_mechanisms[m]["risk_reduction"]
             impact = max(0.1, 1 - total_reduction)
-            self.logger.info("Calculated security mechanisms impact: %.2f", impact)
+            self.logger.debug("Calculated security mechanisms impact: %.2f", impact)
             return round(impact, 2)
         except ValueError as e:
             self.logger.error("ValueError in security mechanisms impact calculation: %s", str(e))
@@ -287,7 +287,7 @@ class PriorityManager:
                 if any(ev in handler_lower for ev in ["onclick","onload", "onerror","onmouseover", "onfocus", "onchange", "onsubmit"]):
                     methods_set.add(RiskLevel.EVAL)
             score = self.calculate_method_score(methods_set)
-            self.logger.info("Processed event handlers with score: %.2f", score)
+            self.logger.debug("Processed event handlers with score: %.2f", score)
             return score
         except ValueError as e:
             self.logger.error("ValueError processing event handlers: %s", str(e))
@@ -327,7 +327,7 @@ class PriorityManager:
                 if "postmessage" in result_lower:
                     methods_set.add(RiskLevel.POST_MESSAGE)
             score = self.calculate_method_score(list(methods_set))
-            self.logger.info("Processed DOM results with score: %.2f", score)
+            self.logger.debug("Processed DOM results with score: %.2f", score)
             return score
         except ValueError as e:
             self.logger.error("ValueError processing DOM results: %s", str(e))
@@ -393,8 +393,8 @@ class PriorityManager:
             labels = ["Informative", "Low", "Medium", "High", "Critical"]
             severity = labels[sum(final_priority >= t for t in thresholds)]
 
-            self.logger.info("Final priority score: %.2f", final_priority)
-            self.logger.info("Severity: %s", severity)
+            self.logger.debug("Final priority score: %.2f", final_priority)
+            self.logger.debug("Severity: %s", severity)
 
             return final_priority, severity
         except ValueError as e:
