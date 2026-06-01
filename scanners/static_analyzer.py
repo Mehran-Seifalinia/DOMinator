@@ -2,12 +2,11 @@
 Static Analyzer Module
 Performs static analysis of HTML content to detect potential DOM XSS vulnerabilities.
 """
-
 from typing import List
 from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity
 from extractors.html_parser import ScriptExtractor
 from utils.logger import get_logger
-from utils.patterns import DANGEROUS_JS_PATTERNS, DANGEROUS_HTML_PATTERNS, get_risk_level
+from utils.patterns import DANGEROUS_JS_PATTERNS, DANGEROUS_HTML_PATTERNS, get_risk_level, DOM_SOURCES_PATTERNS
 from utils.analysis_result import AnalysisResult, Occurrence
 
 logger = get_logger(__name__)
@@ -128,6 +127,24 @@ class StaticAnalyzer:
                            for o in self.result.static_occurrences):
                     self.result.add_static_occurrence(occurrence)
 
+    def extract_dom_sources(self) -> List[str]:
+        """
+        Extract DOM sources (e.g., location.hash, location.search) from inline scripts.
+        
+        Returns:
+            List[str]: List of unique source names found.
+        """
+        sources = set()
+        inline_scripts = self.extractor.extract_inline_scripts()
+        for script in inline_scripts:
+            for pattern in DOM_SOURCES_PATTERNS:
+                if pattern.search(script):
+                    # Extract the actual source name
+                    match = pattern.search(script)
+                    if match:
+                        sources.add(match.group())
+        return list(sources)
+
     def analyze(self) -> AnalysisResult:
         """
         Perform static analysis on the HTML content.
@@ -141,6 +158,7 @@ class StaticAnalyzer:
         """
         try:
             self.detect_dangerous_patterns()
+            self.result.dom_sources = self.extract_dom_sources()
             self.result.set_completed()
             logger.debug("Static analysis completed successfully.")
             return self.result
