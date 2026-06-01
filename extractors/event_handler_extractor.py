@@ -103,13 +103,13 @@ class EventHandlerExtractor:
         if debug_handlers:
             logger.debug(f"Extracted handlers: {'; '.join(debug_handlers)}")
         else:
-            logger.info("No event handlers found.")
+            logger.debug("No event handlers found.")
 
         total_handlers = sum(len(handlers) for handlers in event_handlers.values())
         if total_handlers > 100:
             logger.warning(f"More than 100 event handlers found ({total_handlers}). Consider optimizing scan.")
 
-        logger.info(f"Successfully extracted {total_handlers} event handlers.")
+        logger.debug(f"Successfully extracted {total_handlers} event handlers.")
         return event_handlers
 
     def to_json(self, event_handlers: Dict[str, List[EventHandler]], indent: int = 4) -> str:
