@@ -105,6 +105,29 @@ class StaticAnalyzer:
                     }
                     self.result.add_static_occurrence(occurrence)
 
+        # Fallback: search entire HTML for dangerous patterns
+        for pattern in DANGEROUS_JS_PATTERNS + DANGEROUS_HTML_PATTERNS:
+            for match in pattern.finditer(self.html):
+                risk_level_str = get_risk_level(match.group())
+                risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
+                priority, _ = self.priority_manager.calculate_optimized_priority(
+                    methods=[risk_level.name],
+                    complexity=ExploitComplexity.MEDIUM
+                )
+                occurrence: Occurrence = {
+                    "line": 0,  # Unknown line
+                    "column": match.start(),
+                    "pattern": match.group(),
+                    "context": self.html[max(0, match.start()-30):match.end()+30],
+                    "risk_level": risk_level_str,
+                    "priority": priority,
+                    "source": "static"
+                }
+                # Avoid duplicates by checking pattern and context
+                if not any(o['pattern'] == occurrence['pattern'] and o['context'] == occurrence['context'] 
+                           for o in self.result.static_occurrences):
+                    self.result.add_static_occurrence(occurrence)
+
     def analyze(self) -> AnalysisResult:
         """
         Perform static analysis on the HTML content.
