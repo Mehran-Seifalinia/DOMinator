@@ -277,17 +277,7 @@ async def scan_url_async(
             result.merge_static_results(static_occurrences)
 
             # Dynamic analysis - only if static analysis found something interesting
-            static_sinks = [occ.get('pattern', '') for occ in result.static_occurrences]
-            has_risk = False
-            # Check dangerous sink patterns
-            dangerous_keywords = ['innerHTML', 'outerHTML', 'document.write', 'eval', 'setTimeout', 'setInterval', 'location', 'onclick', 'onerror']
-            for pattern in static_sinks:
-                if any(keyword in pattern.lower() for keyword in dangerous_keywords):
-                    has_risk = True
-                    break
-            # Also check event handlers
-            if result.event_handlers:
-                has_risk = True
+            has_risk = bool(result.static_occurrences) or bool(result.event_handlers)
             
             if not has_risk:
                 if verbose:
@@ -305,7 +295,6 @@ async def scan_url_async(
                     headless=headless,
                     user_agent=user_agent,
                     payloads=get_default_payloads(),
-                    sink_types=static_sinks   # new parameter to pass sink info
                 )
                 dynamic_result = await dynamic_analyzer.run_analysis()
                 result.merge_dynamic_results(dynamic_result)
