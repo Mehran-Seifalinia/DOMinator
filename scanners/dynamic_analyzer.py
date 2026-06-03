@@ -14,7 +14,7 @@ from utils.logger import get_logger
 from utils.patterns import get_risk_level
 from utils.analysis_result import AnalysisResult, Occurrence
 from utils.browser_setup import ensure_browser_installed, BrowserNotInstalledError
-from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
+from urllib.parse import urlparse, parse_qs, urlunparse, urlencode, quote
 
 logger = get_logger(__name__)
 
@@ -162,9 +162,18 @@ class DynamicAnalyzer:
         test_urls = []
         if inject_in == 'hash':
             if '#' in base_url:
-                test_urls.append(base_url.split('#')[0] + '#' + payload)
+                raw_url = base_url.split('#')[0] + '#' + payload
             else:
-                test_urls.append(base_url + '#' + payload)
+                raw_url = base_url + '#' + payload
+            test_urls.append(raw_url)
+
+            encoded_payload = quote(payload, safe='')
+            if '#' in base_url:
+                encoded_url = base_url.split('#')[0] + '#' + encoded_payload
+            else:
+                encoded_url = base_url + '#' + encoded_payload
+            test_urls.append(encoded_url)
+
         elif inject_in == 'query':
             parsed = urlparse(base_url)
             query_dict = parse_qs(parsed.query)
@@ -366,6 +375,9 @@ class DynamicAnalyzer:
                             if is_html_sink and ('<img' in p_lower or '<script' in p_lower or 'onerror' in p_lower):
                                 if p not in relevant_payloads:
                                     relevant_payloads.append(p)
+                                    encoded_p = quote(p, safe='')
+                                    if encoded_p not in relevant_payloads:
+                                        relevant_payloads.append(encoded_p)
                             elif is_eval_sink and ('alert(' in p_lower or 'confirm(' in p_lower or 'prompt(' in p_lower) and '<' not in p_lower and '>' not in p_lower:
                                 if p not in relevant_payloads:
                                     relevant_payloads.append(p)
@@ -376,7 +388,10 @@ class DynamicAnalyzer:
                     if is_eval_sink and not any('alert(' in p.lower() for p in relevant_payloads):
                         relevant_payloads.append('alert(1)')
                     if is_html_sink and not any('<img' in p.lower() for p in relevant_payloads):
-                        relevant_payloads.append('<img src=x onerror=alert(1)>')
+                        default_payload = '<img src=x onerror=alert(1)>'
+                        relevant_payloads.append(default_payload)
+                        encoded_default = quote(default_payload, safe='')
+                        relevant_payloads.append(encoded_default)
                     if is_location_sink and not any('javascript:' in p.lower() for p in relevant_payloads):
                         relevant_payloads.append('javascript:alert(1)')
                         
