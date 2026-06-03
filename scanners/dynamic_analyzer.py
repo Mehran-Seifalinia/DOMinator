@@ -406,8 +406,16 @@ class DynamicAnalyzer:
                     # For offline content, we can also try to inject payloads into the DOM via evaluate
                     for payload in self.payloads:
                         try:
+                            dialog_msg = None
+                            async def on_dialog(dialog):
+                                nonlocal dialog_msg
+                                dialog_msg = dialog.message
+                                await dialog.dismiss()
+                            page.once('dialog', on_dialog)
+
                             await page.evaluate("(payload) => { document.body.innerHTML += payload; }", payload)
-                            dialog_msg = await self._check_for_alert(page, timeout=1000)
+                            await page.wait_for_timeout(500)
+
                             if dialog_msg:
                                 occurrence: Occurrence = {
                                 "line": None,
