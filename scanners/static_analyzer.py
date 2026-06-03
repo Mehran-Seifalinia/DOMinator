@@ -61,15 +61,15 @@ class StaticAnalyzer:
         }
 
         # Analyze inline scripts
-        inline_scripts = self.extractor.extract_inline_scripts()
-        for line_num, script in enumerate(inline_scripts, start=1):
+        inline_scripts = self.extractor.extract_inline_scripts()  # returns List[Tuple[int, str]]
+        for line_num, script in inline_scripts:
             for pattern in DANGEROUS_JS_PATTERNS:
                 for match in pattern.finditer(script):
                     risk_level_str = get_risk_level(match.group())
                     risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
                     priority, _ = self.priority_manager.calculate_optimized_priority(
                         methods=[risk_level.name],
-                        complexity=ExploitComplexity.MEDIUM  # Default complexity
+                        complexity=ExploitComplexity.MEDIUM
                     )
                     occurrence: Occurrence = {
                         "line": line_num,
@@ -86,27 +86,42 @@ class StaticAnalyzer:
         dangerous_elements = self.extractor.get_dangerous_html_elements()
         for tag, attr, value, line in dangerous_elements:
             for pattern in DANGEROUS_HTML_PATTERNS:
-                if pattern.search(attr) or pattern.search(value):
-                    risk_level_str = get_risk_level(attr)
+                match_attr = pattern.search(attr)
+                match_value = pattern.search(value)
+                if match_attr or match_value:
+                    matched_pattern = (match_attr.group() if match_attr else match_value.group())
+                    risk_level_str = get_risk_level(matched_pattern)
                     risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
                     priority, _ = self.priority_manager.calculate_optimized_priority(
                         methods=[risk_level.name],
-                        complexity=ExploitComplexity.MEDIUM  # Default complexity
+                        complexity=ExploitComplexity.MEDIUM
                     )
                     occurrence: Occurrence = {
                         "line": line,
                         "column": 0,
-                        "pattern": attr,
+                        "pattern": matched_pattern,
                         "context": f"{tag} {attr}={value[:50]}..." if len(value) > 50 else f"{tag} {attr}={value}",
                         "risk_level": risk_level_str,
                         "priority": priority,
                         "source": "static"
                     }
                     self.result.add_static_occurrence(occurrence)
+                    break
 
         # Fallback: search entire HTML for dangerous patterns
+        seen_patterns = set()
+        for occ in self.result.static_occurrences:
+            key = (occ['pattern'], occ['context'][:50])
+            seen_patterns.add(key)
+
         for pattern in DANGEROUS_JS_PATTERNS + DANGEROUS_HTML_PATTERNS:
             for match in pattern.finditer(self.html):
+                context = self.html[max(0, match.start()-30):match.end()+30]
+                key = (match.group(), context[:50])
+                if key in seen_patterns:
+                    continue
+                seen_patterns.add(key)
+                line_no = self.html.count('\n', 0, match.start()) + 1
                 risk_level_str = get_risk_level(match.group())
                 risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
                 priority, _ = self.priority_manager.calculate_optimized_priority(
@@ -114,35 +129,39 @@ class StaticAnalyzer:
                     complexity=ExploitComplexity.MEDIUM
                 )
                 occurrence: Occurrence = {
-                    "line": 0,  # Unknown line
+                    "line": line_no,
                     "column": match.start(),
                     "pattern": match.group(),
-                    "context": self.html[max(0, match.start()-30):match.end()+30],
+                    "context": context,
                     "risk_level": risk_level_str,
                     "priority": priority,
                     "source": "static"
                 }
-                # Avoid duplicates by checking pattern and context
-                if not any(o['pattern'] == occurrence['pattern'] and o['context'] == occurrence['context'] 
-                           for o in self.result.static_occurrences):
-                    self.result.add_static_occurrence(occurrence)
+                self.result.add_static_occurrence(occurrence)
 
     def extract_dom_sources(self) -> List[str]:
         """
         Extract DOM sources (e.g., location.hash, location.search) from inline scripts.
-        
-        Returns:
-            List[str]: List of unique source names found.
+        Returns clean source names without method calls or extra characters.
         """
+        import re
         sources = set()
         inline_scripts = self.extractor.extract_inline_scripts()
-        for script in inline_scripts:
+        
+        for item in inline_scripts:
+            if isinstance(item, tuple):
+                script = item[1]
+            else:
+                script = item
+            
             for pattern in DOM_SOURCES_PATTERNS:
-                if pattern.search(script):
-                    # Extract the actual source name
-                    match = pattern.search(script)
-                    if match:
-                        sources.add(match.group())
+                for match in pattern.finditer(script):
+                    full_match = match.group()
+                    clean = re.search(r'([a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)+)', full_match)
+                    if clean:
+                        sources.add(clean.group(1))
+                    else:
+                        sources.add(full_match)
         return list(sources)
 
     def analyze(self) -> AnalysisResult:
