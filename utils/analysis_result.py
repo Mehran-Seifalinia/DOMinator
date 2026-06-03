@@ -3,7 +3,7 @@ Analysis Result Module
 Defines data structures and methods for storing and managing analysis results.
 """
 
-from typing import List, Dict, Optional, TypedDict, Any
+from typing import List, Dict, Optional, TypedDict, Any, Tuple, Set
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
@@ -83,6 +83,9 @@ class AnalysisResult:
         self.priority_score: Optional[float] = None
         self.severity: Optional[str] = None
         self.dom_sources: List[str] = []
+        self._static_keys: Set[Tuple[Optional[int], str, str]] = set()
+        self._dynamic_keys: Set[Tuple[Optional[int], str, str]] = set()
+        self._external_keys: Set[Tuple[Optional[int], str, str]] = set()
 
     def add_static_occurrence(self, occurrence: Occurrence) -> None:
         """
@@ -95,8 +98,11 @@ class AnalysisResult:
             ValueError: If occurrence is invalid (missing required fields)
         """
         self._validate_occurrence(occurrence)
-        occurrence['source'] = 'static'
-        self.static_occurrences.append(occurrence)
+        key = self._make_key(occurrence)
+        if key not in self._static_keys:
+            self._static_keys.add(key)
+            occurrence['source'] = 'static'
+            self.static_occurrences.append(occurrence)
 
     def add_dynamic_occurrence(self, occurrence: Occurrence) -> None:
         """
@@ -109,8 +115,11 @@ class AnalysisResult:
             ValueError: If occurrence is invalid
         """
         self._validate_occurrence(occurrence)
-        occurrence['source'] = 'dynamic'
-        self.dynamic_occurrences.append(occurrence)
+        key = self._make_key(occurrence)
+        if key not in self._dynamic_keys:
+            self._dynamic_keys.add(key)
+            occurrence['source'] = 'dynamic'
+            self.dynamic_occurrences.append(occurrence)
 
     def add_event_handler(self, event_type: str, handler: EventHandler) -> None:
         """
@@ -135,8 +144,11 @@ class AnalysisResult:
             ValueError: If occurrence is invalid
         """
         self._validate_occurrence(occurrence)
-        occurrence['source'] = 'external'
-        self.external_script_risks.append(occurrence)
+        key = self._make_key(occurrence)
+        if key not in self._external_keys:
+            self._external_keys.add(key)
+            occurrence['source'] = 'external'
+            self.external_script_risks.append(occurrence)
 
     def _validate_occurrence(self, occurrence: Occurrence) -> None:
         """Validate required fields in occurrence."""
@@ -145,18 +157,24 @@ class AnalysisResult:
         if missing:
             raise ValueError(f"Missing required fields in occurrence: {missing}")
         
+    def _make_key(self, occurrence: Occurrence) -> Tuple[Optional[int], str, str]:
+        """Create a unique key for an occurrence based on line, pattern, and context."""
+        return (occurrence.get('line'), occurrence['pattern'], occurrence['context'])
+
     def merge_static_results(self, other: 'AnalysisResult') -> None:
         """Merge only static analysis results from another AnalysisResult."""
         if not isinstance(other, AnalysisResult):
             raise TypeError("other must be an instance of AnalysisResult")
-        self.static_occurrences.extend(other.static_occurrences)
+        for occ in other.static_occurrences:
+            self.add_static_occurrence(occ)
         self.dom_sources.extend(other.dom_sources)
 
     def merge_dynamic_results(self, other: 'AnalysisResult') -> None:
         """Merge only dynamic analysis results from another AnalysisResult."""
         if not isinstance(other, AnalysisResult):
             raise TypeError("other must be an instance of AnalysisResult")
-        self.dynamic_occurrences.extend(other.dynamic_occurrences)
+        for occ in other.dynamic_occurrences:
+            self.add_dynamic_occurrence(occ)
 
     def merge_from(self, other: 'AnalysisResult') -> None:
         """
@@ -165,13 +183,17 @@ class AnalysisResult:
         Args:
             other (AnalysisResult): Another result to merge from
         """
-        self.static_occurrences.extend(other.static_occurrences)
-        self.dynamic_occurrences.extend(other.dynamic_occurrences)
+        # Use add methods to preserve deduplication
+        for occ in other.static_occurrences:
+            self.add_static_occurrence(occ)
+        for occ in other.dynamic_occurrences:
+            self.add_dynamic_occurrence(occ)
         for event_type, handlers in other.event_handlers.items():
             if event_type not in self.event_handlers:
                 self.event_handlers[event_type] = []
             self.event_handlers[event_type].extend(handlers)
-        self.external_script_risks.extend(other.external_script_risks)
+        for occ in other.external_script_risks:
+            self.add_external_script_risk(occ)
         self.dom_sources.extend(other.dom_sources)
         if other.status == 'error':
             self.set_error(other.error_message or "Merged error")
