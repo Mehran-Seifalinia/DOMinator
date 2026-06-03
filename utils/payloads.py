@@ -271,6 +271,6 @@ if __name__ == "__main__":
     payloads.add_payload("<script>alert('New XSS')</script>")
     print(payloads.get_payloads())
     payloads.update_payload("<script>alert('XSS')</script>", "<script>alert('Updated XSS')</script>")
-    payloads.remove_payload("<script>alert('Updated XSS')</script>")
+    payloads.remove_all_by_string("<script>alert('Updated XSS')</script>")
     payloads.save_to_file("payloads.json")
     payloads.load_from_file("payloads.json")
