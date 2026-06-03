@@ -320,8 +320,10 @@ class PriorityManager:
                     methods_set.add(RiskLevel.DOCUMENT_WRITE)
                 if "innerhtml" in result_lower or "outerhtml" in result_lower:
                     methods_set.add(RiskLevel.INNER_HTML)
-                if "settimeout" in result_lower or "setinterval" in result_lower:
+                if "settimeout" in result_lower:
                     methods_set.add(RiskLevel.SET_TIMEOUT)
+                if "setinterval" in result_lower:
+                    methods_set.add(RiskLevel.SET_INTERVAL)
                 if "localstorage" in result_lower:
                     methods_set.add(RiskLevel.LOCAL_STORAGE)
                 if "postmessage" in result_lower:
@@ -338,6 +340,38 @@ class PriorityManager:
             self.logger.error("Unexpected error processing DOM results: %s", str(e))
             raise
 
+    def _extract_methods_from_event_handlers(self, event_handlers: List[str]) -> set:
+        """Extract RiskLevel set from event handlers without scoring."""
+        methods_set = set()
+        for handler in event_handlers:
+            handler_lower = handler.lower()
+            if any(ev in handler_lower for ev in ["onclick","onload","onerror","onmouseover","onfocus","onchange","onsubmit"]):
+                methods_set.add(RiskLevel.EVAL)
+        return methods_set
+
+    def _extract_methods_from_dom_results(self, dom_results: List[str]) -> set:
+        """Extract RiskLevel set from DOM results without scoring."""
+        methods_set = set()
+        for result in dom_results:
+            result_lower = result.lower()
+            if "<script>" in result_lower or "javascript:" in result_lower:
+                methods_set.add(RiskLevel.EVAL)
+            if "document.write" in result_lower or "document.writeln" in result_lower:
+                methods_set.add(RiskLevel.DOCUMENT_WRITE)
+            if "innerhtml" in result_lower or "outerhtml" in result_lower:
+                methods_set.add(RiskLevel.INNER_HTML)
+            if "settimeout" in result_lower:
+                methods_set.add(RiskLevel.SET_TIMEOUT)
+            if "setinterval" in result_lower:
+                methods_set.add(RiskLevel.SET_INTERVAL)
+            if "localstorage" in result_lower:
+                methods_set.add(RiskLevel.LOCAL_STORAGE)
+            if "postmessage" in result_lower:
+                methods_set.add(RiskLevel.POST_MESSAGE)
+            if "srcdoc" in result_lower:
+                methods_set.add(RiskLevel.INNER_HTML)
+        return methods_set
+
     def calculate_optimized_priority(
         self,
         methods: List[RiskLevel],
@@ -350,39 +384,27 @@ class PriorityManager:
     ) -> Tuple[float, str]:
         """
         Calculate the optimized priority score for a vulnerability.
-        
-        Args:
-            methods (List[RiskLevel]): List of risk levels
-            complexity (ExploitComplexity): Exploit complexity
-            attack_vector (Optional[AttackVector]): Attack vector
-            response_type (Optional[ResponseType]): Response type
-            mechanisms (Optional[List[SecurityMechanisms]]): Security mechanisms
-            event_handlers (Optional[List[str]]): Event handlers
-            dom_results (Optional[List[str]]): DOM results
-            
-        Returns:
-            Tuple[float, str]: Final priority score and severity label
-            
-        Raises:
-            ValueError: If invalid inputs are provided
         """
         self.logger.debug("Calculating optimized priority for methods: %s", methods)
         try:
-            method_score = self.calculate_method_score(methods)
-            event_handler_score = self.process_event_handlers(event_handlers or [])
-            dom_result_score = self.process_dom_results(dom_results or [])
+            combined_methods = set(methods)
+            if event_handlers:
+                combined_methods.update(self._extract_methods_from_event_handlers(event_handlers))
+            if dom_results:
+                combined_methods.update(self._extract_methods_from_dom_results(dom_results))
+
+            method_score = self.calculate_method_score(list(combined_methods))
             complexity_score = self.calculate_complexity_score(complexity)
             attack_vector_score = self.calculate_attack_vector_score(attack_vector) if attack_vector else 0.0
 
             response_data = self.response_types.get(response_type, {"risk": 0, "multiplier": 1}) if response_type else {"risk": 0, "multiplier": 1}
             response_risk = response_data["risk"] * response_data["multiplier"]
 
-            combination_risk = self.calculate_combination_risk(methods)
+            combination_risk = self.calculate_combination_risk(list(combined_methods))
             security_impact = self.calculate_security_mechanisms_impact(mechanisms or [])
 
             total_score = (
-                method_score + event_handler_score + dom_result_score +
-                complexity_score + attack_vector_score +
+                method_score + complexity_score + attack_vector_score +
                 response_risk + combination_risk
             ) * security_impact
 
@@ -390,12 +412,10 @@ class PriorityManager:
             weight_factor = 1 + (total_score / self.normalization_factor)
 
             final_priority = total_score * risk_factor * weight_factor
-            # Boost priority for eval
-            if RiskLevel.EVAL in methods:
+            if RiskLevel.EVAL in combined_methods:
                 final_priority *= 1.5
 
-            # Adjusted thresholds to give higher severity to eval and document.write
-            thresholds = [10, 25, 45, 65]  # lowered to make eval reach High more easily
+            thresholds = [10, 25, 45, 65]
             labels = ["Informative", "Low", "Medium", "High", "Critical"]
             severity = labels[sum(final_priority >= t for t in thresholds)]
 
