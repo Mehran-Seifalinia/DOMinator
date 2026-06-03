@@ -14,6 +14,7 @@ from utils.logger import get_logger
 from utils.patterns import get_risk_level
 from utils.analysis_result import AnalysisResult, Occurrence
 from utils.browser_setup import ensure_browser_installed, BrowserNotInstalledError
+from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
 
 logger = get_logger(__name__)
 
@@ -165,7 +166,6 @@ class DynamicAnalyzer:
             else:
                 test_urls.append(base_url + '#' + payload)
         elif inject_in == 'query':
-            from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
             parsed = urlparse(base_url)
             query_dict = parse_qs(parsed.query)
             if query_dict:
@@ -219,10 +219,6 @@ class DynamicAnalyzer:
                     return True
             except Exception as e:
                 logger.debug(f"Error testing URL {test_url}: {e}")
-                try:
-                    page.remove_listener('dialog', on_dialog)
-                except:
-                    pass
         return False
     
     async def _click_buttons_and_check(self, page: Page) -> None:
@@ -259,10 +255,6 @@ class DynamicAnalyzer:
                         self.result.add_dynamic_occurrence(occurrence)
                 except Exception as e:
                     logger.debug(f"Error clicking element: {e}")
-                    try:
-                        page.remove_listener('dialog', on_dialog)
-                    except:
-                        pass
         except Exception as e:
             logger.error(f"Error in click simulation: {e}")
 
@@ -274,7 +266,12 @@ class DynamicAnalyzer:
         potential DOM XSS vulnerabilities.
         """
         try:
-            fetcher = ExternalFetcher(self.external_urls)
+            fetcher = ExternalFetcher(
+                urls=self.external_urls,
+                proxy=self.proxy,
+                timeout=self.timeout,
+                max_concurrent_requests=5
+            )
             await fetcher.fetch_and_process_scripts()
             
             analysis_results = fetcher.get_analysis_results()
@@ -303,11 +300,12 @@ class DynamicAnalyzer:
         """Execute HTML in a real browser to detect dynamic vulnerabilities."""
         try:
             p = None
-            try:
-                await ensure_browser_installed()
-            except BrowserNotInstalledError as e:
-                logger.warning(f"Browser not available: {e}. Skipping browser-based analysis.")
-                return
+            if self.browser is None:
+                try:
+                    await ensure_browser_installed()
+                except BrowserNotInstalledError as e:
+                    logger.warning(f"Browser not available: {e}. Skipping browser-based analysis.")
+                    return
 
             close_browser_after = False
             if self.browser is None:
