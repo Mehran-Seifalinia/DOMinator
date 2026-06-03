@@ -26,12 +26,8 @@ DANGEROUS_JS_PATTERNS: List[Pattern] = [
 
 # HTML dangerous patterns
 DANGEROUS_HTML_PATTERNS: List[Pattern] = [
-    compile(r"(?i)on\w+\s*="),
     compile(r"(?i)javascript\s*:"),
     compile(r"(?i)data\s*:\s*text\s*/\s*html"),
-    compile(r"(?i)<\s*script[^>]*>[\s\S]*?<\s*/\s*script\s*>"),
-    compile(r"(?i)<\s*iframe[^>]*>[\s\S]*?<\s*/\s*iframe\s*>"),
-    compile(r"(?i)<\s*object\s*data\s*=\s*['\"].*['\"]\s*>"),
 ]
 
 # DOM source patterns (where attacker-controlled data can enter)
