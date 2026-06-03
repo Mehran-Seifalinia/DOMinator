@@ -9,7 +9,7 @@ from typing import List, Pattern, Set, Dict
 # JavaScript dangerous patterns
 DANGEROUS_JS_PATTERNS: List[Pattern] = [
     compile(r"(?i)\beval\s*\("),
-    compile(r"(?i)(?<![a-zA-Z0-9_])Function\s*\("),
+    compile(r"(?i)\bFunction\s*\("),
     compile(r"(?i)window\s*\[\s*['\"]eval['\"]\s*\]"),
     compile(r"(?i)document\.(write|writeln|open)\s*\("),
     compile(r"(?i)(setTimeout|setInterval)\s*\("),
@@ -29,8 +29,8 @@ DANGEROUS_HTML_PATTERNS: List[Pattern] = [
     compile(r"(?i)on\w+\s*="),
     compile(r"(?i)javascript\s*:"),
     compile(r"(?i)data\s*:\s*text\s*/\s*html"),
-    compile(r"(?i)<\s*script[^>]*>.*<\s*/\s*script\s*>"),
-    compile(r"(?i)<\s*iframe[^>]*>.*<\s*/\s*iframe\s*>"),
+    compile(r"(?i)<\s*script[^>]*>[\s\S]*?<\s*/\s*script\s*>"),
+    compile(r"(?i)<\s*iframe[^>]*>[\s\S]*?<\s*/\s*iframe\s*>"),
     compile(r"(?i)<\s*object\s*data\s*=\s*['\"].*['\"]\s*>"),
 ]
 
@@ -39,6 +39,8 @@ DOM_SOURCES_PATTERNS: List[Pattern] = [
     compile(r"location\.hash"),
     compile(r"location\.search"),
     compile(r"location\.href"),
+    compile(r"location\.pathname"),
+    compile(r"document\.baseURI"),
     compile(r"document\.URL"),
     compile(r"document\.documentURI"),
     compile(r"document\.referrer"),
@@ -103,10 +105,10 @@ EVENT_HANDLER_ATTRIBUTES: Set[str] = {
 
 # Risk levels for different patterns
 RISK_LEVELS: Dict[str, str] = {
-    'eval': 'high',
+    'eval': 'critical',
     'Function': 'high',
     'onclick': 'medium',
-    'document.write': 'high',
+    'document.write': 'critical',
     'setTimeout': 'medium',
     'setInterval': 'medium',
     'fetch': 'medium',
@@ -118,27 +120,28 @@ RISK_LEVELS: Dict[str, str] = {
     'outerHTML': 'critical',
 }
 
-def get_risk_level(pattern: str, complexity: int = 1) -> str:
-    """
-    Get the risk level for a given pattern.
-    
-    Args:
-        pattern (str): The pattern to check
-        
-    Returns:
-        str: Risk level ('high', 'medium', 'low', or 'unknown')
-        
-    Note:
-        This function checks if any of the known risk patterns are present
-        in the given pattern string and returns the corresponding risk level.
-    """
+def get_risk_level(pattern: str, _complexity: int = 1) -> str:
+    import re
     try:
+        risk_map = {
+            r'\beval\s*\(': 'critical',
+            r'\.innerHTML\s*=': 'critical',
+            r'document\.write\s*\(': 'critical',
+            r'\.outerHTML\s*=': 'critical',
+            r'\bFunction\s*\(': 'high',
+            r'setTimeout\s*\(': 'medium',
+            r'setInterval\s*\(': 'medium',
+            r'window\.location\s*=': 'high',
+            r'localStorage': 'low',
+            r'sessionStorage': 'low',
+        }
+        for regex, level in risk_map.items():
+            if re.search(regex, pattern, re.IGNORECASE):
+                return level
         pattern_lower = pattern.lower()
-        if any(keyword in pattern_lower for keyword in ['eval', 'innerhtml', 'document.write']):
-            return "critical"
         for key in RISK_LEVELS:
             if key.lower() in pattern_lower:
                 return RISK_LEVELS[key]
         return 'unknown'
     except Exception:
-        return 'unknown' 
+        return 'unknown'
