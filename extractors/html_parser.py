@@ -6,6 +6,7 @@ Provides functionality for parsing and extracting information from HTML content.
 from typing import List, Optional, Tuple
 from bs4 import BeautifulSoup
 from utils.logger import get_logger
+from utils.patterns import EVENT_HANDLER_ATTRIBUTES
 from traceback import format_exc
 from re import compile, IGNORECASE
 
@@ -94,7 +95,7 @@ class ScriptExtractor:
                     is_dangerous = False
                     
                     # Check for event handlers
-                    if attr.lower().startswith('on') and value_lower:
+                    if attr.lower() in EVENT_HANDLER_ATTRIBUTES and value_lower:
                         is_dangerous = True
                     
                     # Check for suspicious protocols in values
