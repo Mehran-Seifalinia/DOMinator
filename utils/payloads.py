@@ -5,7 +5,7 @@ Manages and provides XSS payloads for testing DOM XSS vulnerabilities.
 
 from json import dump, load, JSONDecodeError
 from enum import Enum
-from typing import List, Optional, Set, Dict, Any
+from typing import List, Optional, Set
 from threading import Lock
 from utils.logger import get_logger
 from dataclasses import dataclass
@@ -21,6 +21,7 @@ class PayloadType(Enum):
 
 class Encoding(Enum):
     """Enumeration of different encoding types for payloads."""
+    RAW = "raw" 
     BASE64 = "base64"
     URL = "url"
     UNICODE = "unicode"
@@ -38,15 +39,6 @@ class Payload:
     payload: str
     payload_type: PayloadType
     encoding: Encoding
-
-    def __hash__(self) -> int:
-        """
-        Generate a hash for the payload.
-        
-        Returns:
-            int: Hash value for the payload
-        """
-        return hash((self.payload, self.payload_type, self.encoding))
 
 class Payloads:
     """
@@ -82,7 +74,7 @@ class Payloads:
                 result = [p for p in result if p.encoding == encoding]
             return result
 
-    def add_payload(self, payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.BASE64) -> None:
+    def add_payload(self, payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.RAW) -> None:
         """
         Add a new payload.
         
@@ -128,36 +120,39 @@ class Payloads:
             self.logger.warning(f"Payload not found for update: {old_payload}")
             return False
 
-    def remove_payload(self, payload: str, payload_type: Optional[PayloadType] = None, encoding: Optional[Encoding] = None) -> None:
-        """
-        Remove a payload. If payload_type and encoding are provided, remove only the exact match.
-        Otherwise, remove all payloads with the given string (legacy behavior).
-        
-        Args:
-            payload (str): The payload to remove
-            payload_type (Optional[PayloadType]): Specific type to match
-            encoding (Optional[Encoding]): Specific encoding to match
-        """
+    def remove_exact(self, payload: str, payload_type: PayloadType, encoding: Encoding) -> bool:
+        """Remove exactly one payload matching given string, type and encoding."""
         with self.lock:
-            if payload_type is not None and encoding is not None:
-                # Remove exact match
-                target = Payload(payload, payload_type, encoding)
-                if target in self.payload_set:
-                    self.payload_list.remove(target)
-                    self.payload_set.discard(target)
-                    self.logger.info(f"Payload removed exactly: {payload}")
-                else:
-                    self.logger.warning(f"Exact payload not found: {payload} with type {payload_type} and encoding {encoding}")
-            else:
-                # Legacy behavior: remove all with matching string
-                payloads_to_remove = [p for p in self.payload_list if p.payload == payload]
-                if not payloads_to_remove:
-                    self.logger.warning(f"Payload not found for removal: {payload}")
-                    return
-                for p in payloads_to_remove:
-                    self.payload_list.remove(p)
-                    self.payload_set.discard(p)
-                    self.logger.info(f"Payload removed: {payload}")
+            target = Payload(payload, payload_type, encoding)
+            if target in self.payload_set:
+                self.payload_list.remove(target)
+                self.payload_set.discard(target)
+                self.logger.info(f"Exact payload removed: {payload} [{payload_type.value}, {encoding.value}]")
+                return True
+            self.logger.warning(f"Exact payload not found: {payload}")
+            return False
+
+    def remove_all_by_string(self, payload: str) -> int:
+        """Remove all payloads with the given string (any type/encoding)."""
+        with self.lock:
+            to_remove = [p for p in self.payload_list if p.payload == payload]
+            if not to_remove:
+                self.logger.warning(f"No payload with string '{payload}' found")
+                return 0
+            count = 0
+            for p in to_remove:
+                self.payload_list.remove(p)
+                self.payload_set.discard(p)
+                count += 1
+            self.logger.info(f"Removed {count} payload(s) with string: {payload}")
+            return count
+        
+    def clear(self) -> None:
+        """Remove all payloads."""
+        with self.lock:
+            self.payload_list.clear()
+            self.payload_set.clear()
+            self.logger.info("All payloads cleared")
 
     def _is_valid_payload(self, payload: str) -> bool:
         """
@@ -221,6 +216,8 @@ class Payloads:
                             if payload not in self.payload_set:
                                 self.payload_list.append(payload)
                                 self.payload_set.add(payload)
+                            else:
+                                self.logger.info(f"Duplicate payload skipped: {payload.payload}")
                         except ValueError:
                             self.logger.error(f"Invalid payload type or encoding in file: {p}")
                             continue
@@ -244,6 +241,18 @@ class Payloads:
         """
         with self.lock:
             return [p for p in self.payload_list if search_term.lower() in p.payload.lower()]
+        
+    def add_default_payloads(self) -> None:
+        """Add a set of common test payloads with appropriate types."""
+        default_items = [
+            ("<img src=x onerror=alert(1)>", PayloadType.ATTRIBUTE, Encoding.RAW),
+            ("<script>alert(1)</script>", PayloadType.SIMPLE, Encoding.RAW),
+            ("javascript:alert(1)", PayloadType.DYNAMIC, Encoding.RAW),
+            ("alert(1)", PayloadType.SIMPLE, Encoding.RAW),
+        ]
+        for payload_str, ptype, enc in default_items:
+            self.add_payload(payload_str, ptype, enc)
+        self.logger.info("Default payloads added")
 
 if __name__ == "__main__":
     # Test the Payloads class
@@ -256,14 +265,3 @@ if __name__ == "__main__":
     payloads.remove_payload("<script>alert('Updated XSS')</script>")
     payloads.save_to_file("payloads.json")
     payloads.load_from_file("payloads.json")
-
-# Add this function at the end of the file, after the if __name__ == "__main__" block
-
-def get_default_payloads() -> List[str]:
-    """Return a minimal set of payloads for quick testing."""
-    return [
-        "<img src=x onerror=alert(1)>",   # for innerHTML/document.write
-        "<script>alert(1)</script>",      # general script injection
-        "javascript:alert(1)",            # for location-based
-        "alert(1)",                       # for eval
-    ]
