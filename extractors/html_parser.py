@@ -87,31 +87,40 @@ class ScriptExtractor:
             logger.error(f"Unexpected error during HTML validation: {str(e)}\n{format_exc()}")
             return False
 
-    def extract_inline_scripts(self) -> List[str]:
+    def extract_inline_scripts(self) -> List[Tuple[int, str]]:
         """
-        Extract all inline scripts from the HTML content.
+        Extract all inline scripts with their approximate line numbers in original HTML.
         
         Returns:
-            List[str]: List of unique inline script contents
-        
-        Note:
-            This method extracts only scripts with actual content and
-            removes duplicates. Scripts with type != 'text/javascript' are still extracted.
+            List[Tuple[int, str]]: List of (line_number, script_content) where line_number
+            is the line number where the <script> tag starts (1-indexed).
         """
         try:
-            scripts: set[str] = set()
+            scripts: List[Tuple[int, str]] = []
+            seen: set[str] = set()
+            lines = self.html.splitlines(keepends=False)
+            
             for script in self.soup.find_all("script"):
                 if script.string and script.string.strip():
-                    scripts.add(script.string.strip())
+                    content = script.string.strip()
+                    if content in seen:
+                        continue
+                    seen.add(content)
+                    script_tag_str = str(script)
+                    line_no = getattr(script, 'sourceline', None)
+                    if line_no is None:
+                        pos = self.html.find(content)
+                        if pos != -1:
+                            line_no = self.html.count('\n', 0, pos) + 1
+                        else:
+                            line_no = 0
+                    scripts.append((line_no if line_no else 0, content))
             
-            if not scripts:
-                logger.debug("No inline scripts found in the HTML.")
-            
-            return list(scripts)
-        
+            return scripts
         except Exception as e:
-            logger.error(f"Unexpected error extracting inline scripts: {str(e)}\n{format_exc()}")
+            logger.error(f"Error extracting inline scripts: {e}")
             return []
+        
 
     def get_dangerous_html_elements(self) -> List[Tuple[str, str, str, Optional[int]]]:
         """
