@@ -3,13 +3,12 @@ External Fetcher Module
 Fetches and analyzes external JavaScript files for potential DOM XSS vulnerabilities.
 """
 
-from sys import argv
-from asyncio import Lock, Semaphore, gather, run
+from asyncio import Lock, Semaphore, gather, run, TimeoutError
 from typing import List, Optional, Dict, Any
-from aiohttp import ClientSession, ClientTimeout
+from aiohttp import ClientSession, ClientTimeout, ClientError
 from re import findall, compile
 from urllib.parse import urlparse
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -39,19 +38,21 @@ class ScriptAnalysisResult:
     sources, and sinks found in a JavaScript file.
     """
     
-    def __init__(self, url: str, event_listeners: List[str], risky_functions: List[str], sources: List[str], sinks: List[str]) -> None:
+    def __init__(self, url: str, event_listeners: List[str], inline_events: List[str], risky_functions: List[str], sources: List[str], sinks: List[str]) -> None:
         """
         Initialize ScriptAnalysisResult with analysis data.
         
         Args:
             url (str): URL of the analyzed script
             event_listeners (List[str]): List of event listeners found
+            inline_events (List[str]): List of inline event handlers (onclick, onload, etc.)
             risky_functions (List[str]): List of risky functions found
             sources (List[str]): List of potential sources found
             sinks (List[str]): List of potential sinks found
         """
         self.url = url
         self.event_listeners = event_listeners
+        self.inline_events = inline_events
         self.risky_functions = risky_functions
         self.sources = sources
         self.sinks = sinks
@@ -66,6 +67,7 @@ class ScriptAnalysisResult:
         return {
             "url": self.url,
             "event_listeners": self.event_listeners,
+            "inline_events": self.inline_events,
             "risky_functions": self.risky_functions,
             "sources": self.sources,
             "sinks": self.sinks
@@ -79,6 +81,7 @@ class ScriptAnalysisResult:
             other (ScriptAnalysisResult): Another analysis result to merge
         """
         self.event_listeners = list(set(self.event_listeners + other.event_listeners))
+        self.inline_events = list(set(self.inline_events + other.inline_events))
         self.risky_functions = list(set(self.risky_functions + other.risky_functions))
         self.sources = list(set(self.sources + other.sources))
         self.sinks = list(set(self.sinks + other.sinks))
@@ -137,7 +140,8 @@ class ExternalFetcher:
                 raise ValueError(f"Invalid proxy: {proxy}")
         return None
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10),
+           retry=retry_if_exception_type((ClientError, TimeoutError)))
     async def fetch_script(self, session: ClientSession, url: str) -> Optional[str]:
         """
         Fetch a script from a URL with retry mechanism.
@@ -158,11 +162,13 @@ class ExternalFetcher:
                     proxy=self.proxy,
                     headers=headers
                 ) as response:
-                    if response.status == 200 and 'javascript' in response.content_type.lower():
-                        content = await response.text()
-                        if len(content) > MAX_CONTENT_SIZE:
+                    content_type = response.content_type or ''
+                    if response.status == 200 and 'javascript' in content_type.lower():
+                        content_chunk = await response.content.read(MAX_CONTENT_SIZE + 1)
+                        if len(content_chunk) > MAX_CONTENT_SIZE:
                             logger.warning(f"Content too large for {url}, skipping analysis.")
                             return None
+                        content = content_chunk.decode('utf-8', errors='replace')
                         return content
                     logger.warning(f"Failed to fetch {url}: HTTP {response.status} or invalid content type.")
             except Exception as e:
@@ -190,12 +196,12 @@ class ExternalFetcher:
 
             # Find all matches using compiled patterns
             event_listeners = findall(PATTERNS['event_listeners'], content)
-            risky_events = findall(PATTERNS['risky_events'], content)
-            event_listeners.extend(risky_events)
+            inline_events = findall(PATTERNS['risky_events'], content)
 
             analysis = ScriptAnalysisResult(
                 url=url,
                 event_listeners=list(set(event_listeners)),
+                inline_events=list(set(inline_events)),
                 risky_functions=list(set(findall(PATTERNS['risky_functions'], content))),
                 sources=list(set(findall(PATTERNS['sources'], content))),
                 sinks=list(set(findall(PATTERNS['sinks'], content)))
@@ -287,7 +293,14 @@ def main() -> None:
             timeout=args.timeout,
             max_concurrent_requests=args.max_concurrent
         )
-        run(fetcher.fetch_and_process_scripts())
+        results = run(fetcher.fetch_and_process_scripts())
+        for res in results:
+            print(f"URL: {res.url}")
+            print(f"  Event listeners (addEventListener): {res.event_listeners}")
+            print(f"  Inline events (on*): {res.inline_events}")
+            print(f"  Risky functions: {res.risky_functions}")
+            print(f"  Sources: {res.sources}")
+            print(f"  Sinks: {res.sinks}\n")
     except Exception as e:
         logger.error(f"Error in main function: {str(e)}")
 
