@@ -3,7 +3,7 @@ Dynamic Analyzer Module
 Performs dynamic analysis of HTML content to detect potential DOM XSS vulnerabilities.
 """
 
-from asyncio import gather, run
+from asyncio import gather, run, TimeoutError
 from typing import List, Optional
 from pathlib import Path
 from playwright.async_api import async_playwright, Page
@@ -14,8 +14,8 @@ from utils.logger import get_logger
 from utils.patterns import get_risk_level
 from utils.analysis_result import AnalysisResult, Occurrence
 from utils.browser_setup import ensure_browser_installed, BrowserNotInstalledError
-from urllib.parse import urlparse, parse_qs, urlunparse, urlencode, quote
-
+from urllib.parse import quote
+from json import dumps
 logger = get_logger(__name__)
 
 INSTRUMENT_SCRIPT_PATH = Path(__file__).parent.parent / 'utils' / 'dom_instrument.js'
@@ -83,6 +83,7 @@ class DynamicAnalyzer:
         self.level = level
         self.proxy = proxy
         self.cookies = cookies
+        self._dialog_detected_for_payload = False
 
 
     async def analyze_event_handlers(self) -> None:
@@ -120,6 +121,10 @@ class DynamicAnalyzer:
                 payload = item.get('payloadSuggestion', '')
                 context = item.get('context', '')
                 
+                if self._dialog_detected_for_payload:
+                    logger.debug("Skipping instrumentation report because dialog was already captured.")
+                    continue
+
                 occurrence: Occurrence = {
                     "line": None,
                     "column": None,
@@ -158,76 +163,41 @@ class DynamicAnalyzer:
         Returns:
             bool: True if alert was detected
         """
-        # Build test URLs based on inject_in
-        test_urls = []
-        if inject_in == 'hash':
-            if '#' in base_url:
-                raw_url = base_url.split('#')[0] + '#' + payload
-            else:
-                raw_url = base_url + '#' + payload
-            test_urls.append(raw_url)
-
-            encoded_payload = quote(payload, safe='')
-            if '#' in base_url:
-                encoded_url = base_url.split('#')[0] + '#' + encoded_payload
-            else:
-                encoded_url = base_url + '#' + encoded_payload
-            test_urls.append(encoded_url)
-
-        elif inject_in == 'query':
-            parsed = urlparse(base_url)
-            query_dict = parse_qs(parsed.query)
-            if query_dict:
-                # Test each existing parameter (max 2)
-                params_list = list(query_dict.keys())
-                for param in params_list[:2]:
-                    new_query_dict = {}
-                    for other_param, values in query_dict.items():
-                        if other_param == param:
-                            new_query_dict[param] = [payload]
-                        else:
-                            new_query_dict[other_param] = values
-                    new_query = urlencode(new_query_dict, doseq=True)
-                    test_urls.append(urlunparse(parsed._replace(query=new_query)))
-                # Fallback: add xss parameter
-                query_dict['xss'] = [payload]
-                new_query = urlencode(query_dict, doseq=True)
-                test_urls.append(urlunparse(parsed._replace(query=new_query)))
-            else:
-                # No existing params, add xss
-                test_urls.append(urlunparse(parsed._replace(query=f"xss={payload}")))
-        else:
+        
+        if inject_in != 'hash':
             return False
         
-        # Test each URL
-        for test_url in test_urls[:3]:  # limit to 3 variants
-            logger.debug(f"Testing payload in {inject_in}: {test_url}")
-            try:
-                # Set up dialog listener BEFORE navigation
-                dialog_msg = None
-                async def on_dialog(dialog):
-                    nonlocal dialog_msg
-                    dialog_msg = dialog.message
-                    await dialog.dismiss()
-                page.once('dialog', on_dialog)
-                
-                await page.goto(test_url, wait_until='networkidle', timeout=self.timeout * 1000)
-                await page.wait_for_timeout(1000)
-                
-                if dialog_msg:
-                    occurrence: Occurrence = {
-                        "line": None,
-                        "column": None,
-                        "pattern": f"DOM XSS via {inject_in} injection",
-                        "context": f"Payload: {payload} triggered alert: {dialog_msg}",
-                        "risk_level": "high",
-                        "priority": 90,
-                        "source": "dynamic"
-                    }
-                    self.result.add_dynamic_occurrence(occurrence)
-                    return True
-            except Exception as e:
-                logger.debug(f"Error testing URL {test_url}: {e}")
+        logger.debug(f"Testing payload in {inject_in}: {payload}")
+        try:
+            await page.goto(base_url, wait_until='networkidle', timeout=self.timeout * 1000)
+            
+            escaped_payload = dumps(payload)
+            await page.evaluate(f"window.location.hash = {escaped_payload}")
+            
+            async with page.expect_event('dialog', timeout=5000) as dialog_info:
+                await page.reload(wait_until='networkidle', timeout=self.timeout * 1000)
+            
+            dialog = await dialog_info.value
+            await dialog.dismiss()
+            
+            occurrence: Occurrence = {
+                "line": None,
+                "column": None,
+                "pattern": f"DOM XSS via {inject_in} injection (manual reload)",
+                "context": f"Payload: {payload} triggered alert: {dialog.message}",
+                "risk_level": "high",
+                "priority": 90,
+                "source": "dynamic"
+            }
+            self.result.add_dynamic_occurrence(occurrence)
+            self._dialog_detected_for_payload = True
+            return True
+            
+        except TimeoutError:
+            logger.debug(f"No dialog for payload: {payload}")
+        except Exception as e:
+            logger.debug(f"Error testing payload {payload}: {e}")
+
         return False
     
     async def _click_buttons_and_check(self, page: Page) -> None:
@@ -240,28 +210,22 @@ class DynamicAnalyzer:
             logger.debug(f"Found {len(elements)} elements with onclick attribute")
             for elem in elements:
                 try:
-                    # Set up dialog listener BEFORE click
-                    dialog_msg = None
-                    async def on_dialog(dialog):
-                        nonlocal dialog_msg
-                        dialog_msg = dialog.message
-                        await dialog.dismiss()
-                    page.once('dialog', on_dialog)
-                    
-                    await elem.click()
-                    await page.wait_for_timeout(1500)
-                    
-                    if dialog_msg:
-                        occurrence: Occurrence = {
-                            "line": None,
-                            "column": None,
-                            "pattern": "onclick event triggered XSS",
-                            "context": f"Clicked element with onclick, alert: {dialog_msg}",
-                            "risk_level": "medium",
-                            "priority": 70,
-                            "source": "dynamic"
-                        }
-                        self.result.add_dynamic_occurrence(occurrence)
+                    # Use expect_event to capture dialog after click
+                    async with page.expect_event('dialog', timeout=5000) as dialog_info:
+                        await elem.click()
+                        await page.wait_for_timeout(500)
+                    dialog = await dialog_info.value
+                    await dialog.dismiss()
+                    occurrence: Occurrence = {
+                        "line": None,
+                        "column": None,
+                        "pattern": "onclick event triggered XSS",
+                        "context": f"Clicked element with onclick, alert: {dialog.message}",
+                        "risk_level": "medium",
+                        "priority": 70,
+                        "source": "dynamic"
+                    }
+                    self.result.add_dynamic_occurrence(occurrence)
                 except Exception as e:
                     logger.debug(f"Error clicking element: {e}")
         except Exception as e:
@@ -308,6 +272,7 @@ class DynamicAnalyzer:
     async def execute_in_browser(self) -> None:
         """Execute HTML in a real browser to detect dynamic vulnerabilities."""
         try:
+            self._dialog_detected_for_payload = False
             p = None
             if self.browser is None:
                 try:
@@ -421,27 +386,21 @@ class DynamicAnalyzer:
                     # For offline content, we can also try to inject payloads into the DOM via evaluate
                     for payload in self.payloads:
                         try:
-                            dialog_msg = None
-                            async def on_dialog(dialog):
-                                nonlocal dialog_msg
-                                dialog_msg = dialog.message
-                                await dialog.dismiss()
-                            page.once('dialog', on_dialog)
-
-                            await page.evaluate("(payload) => { document.body.innerHTML += payload; }", payload)
-                            await page.wait_for_timeout(500)
-
-                            if dialog_msg:
-                                occurrence: Occurrence = {
+                            async with page.expect_event('dialog', timeout=5000) as dialog_info:
+                                await page.evaluate("(payload) => { document.body.innerHTML += payload; }", payload)
+                                await page.wait_for_timeout(500)
+                            dialog = await dialog_info.value
+                            await dialog.dismiss()
+                            occurrence: Occurrence = {
                                 "line": None,
                                 "column": None,
                                 "pattern": "DOM XSS via innerHTML injection (offline)",
-                                "context": f"Payload: {payload} triggered alert: {dialog_msg}",
+                                "context": f"Payload: {payload} triggered alert: {dialog.message}",
                                 "risk_level": "high",
                                 "priority": 90,
                                 "source": "dynamic"
-                                }
-                                self.result.add_dynamic_occurrence(occurrence)
+                            }
+                            self.result.add_dynamic_occurrence(occurrence)
                         except Exception:
                             pass
 
