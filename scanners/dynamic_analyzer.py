@@ -174,6 +174,9 @@ class DynamicAnalyzer:
             escaped_payload = dumps(payload)
             await page.evaluate(f"window.location.hash = {escaped_payload}")
             
+            # Capture the current URL after setting hash (includes the injected payload)
+            injected_url = page.url
+            
             async with page.expect_event('dialog', timeout=5000) as dialog_info:
                 await page.reload(wait_until='networkidle', timeout=self.timeout * 1000)
             
@@ -183,11 +186,12 @@ class DynamicAnalyzer:
             occurrence: Occurrence = {
                 "line": None,
                 "column": None,
-                "pattern": f"DOM XSS via {inject_in} injection (manual reload)",
+                "pattern": f"innerHTML XSS (confirmed via {inject_in})",
                 "context": f"Payload: {payload} triggered alert: {dialog.message}",
-                "risk_level": "high",
-                "priority": 90,
-                "source": "dynamic"
+                "risk_level": "critical",
+                "priority": 95,
+                "source": "dynamic",
+                "injected_url": injected_url
             }
             self.result.add_dynamic_occurrence(occurrence)
             self._dialog_detected_for_payload = True
@@ -397,7 +401,7 @@ class DynamicAnalyzer:
                                 "pattern": "DOM XSS via innerHTML injection (offline)",
                                 "context": f"Payload: {payload} triggered alert: {dialog.message}",
                                 "risk_level": "high",
-                                "priority": 90,
+                                "priority": 95,
                                 "source": "dynamic"
                             }
                             self.result.add_dynamic_occurrence(occurrence)
