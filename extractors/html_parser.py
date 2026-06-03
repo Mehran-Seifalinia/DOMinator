@@ -36,7 +36,7 @@ class ScriptExtractor:
         self.html = html
         
         try:
-            self.soup = BeautifulSoup(html, "lxml")
+            self.soup = BeautifulSoup(html, "html5lib")
         except Exception as e:
             logger.error(f"Error parsing HTML: {str(e)}\n{format_exc()}")
             raise ValueError("Failed to parse the HTML content.")
