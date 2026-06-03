@@ -273,8 +273,8 @@ async def scan_url_async(
                 if verbose:
                     logger.info(f"Running static analysis for {page_url} at level {level}...")
                 static_analyzer = StaticAnalyzer(page_html, level=level)
-                static_occurrences = static_analyzer.analyze()
-                result.merge_static_results(static_occurrences)
+                static_result = static_analyzer.analyze()
+                result.merge_static_results(static_result)
 
                 # Dynamic analysis
                 if verbose:
