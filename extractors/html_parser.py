@@ -9,13 +9,6 @@ from utils.logger import get_logger
 from traceback import format_exc
 from re import compile, IGNORECASE
 
-try:
-    from html5lib import parse
-except ImportError:
-    raise ImportError(
-        "html5lib is required for HTML parsing. Please install it using: pip install html5lib"
-    )
-
 logger = get_logger(__name__)
 
 # Maximum allowed HTML size in bytes to prevent memory issues
@@ -33,18 +26,6 @@ class ScriptExtractor:
     """
     
     def __init__(self, html: str) -> None:
-        """
-        Initialize the ScriptExtractor with HTML content.
-        
-        Args:
-            html (str): The HTML content to parse
-            
-        Raises:
-            TypeError: If HTML content is not a string
-            ValueError: If HTML content is empty, too large, invalid, or parsing fails
-        
-        Note: Proxy and user_agent parameters have been removed as they are unused.
-        """
         if not isinstance(html, str) or not html.strip():
             raise TypeError("HTML content must be a non-empty string.")
         
@@ -52,53 +33,18 @@ class ScriptExtractor:
             logger.error(f"HTML content exceeds maximum size ({MAX_HTML_SIZE} bytes).")
             raise ValueError("HTML content is too large.")
         
-        if not self._validate_html(html):
-            raise ValueError("Invalid HTML: The provided HTML could not be parsed. Please check the syntax.")
+        self.html = html
         
         try:
-            # Use 'html5lib' for better position tracking and consistency with validation
-            self.soup = BeautifulSoup(html, "html5lib")
+            self.soup = BeautifulSoup(html, "lxml")
         except Exception as e:
-            logger.error(f"Error parsing HTML with BeautifulSoup: {str(e)}\n{format_exc()}")
+            logger.error(f"Error parsing HTML: {str(e)}\n{format_exc()}")
             raise ValueError("Failed to parse the HTML content.")
 
-    def _validate_html(self, html: str) -> bool:
-        """
-        Validate the HTML content using html5lib.
-        
-        Args:
-            html (str): The HTML content to validate
-        
-        Returns:
-            bool: True if HTML is valid, False otherwise
-        
-        Note:
-            html5lib is tolerant and may not catch all structural errors strictly.
-            For stricter validation, consider additional checks in future versions.
-        """
-
-        try:
-            parse(html)
-            return True
-        except ValueError as e:
-            logger.error(f"Invalid HTML content: {str(e)}")
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error during HTML validation: {str(e)}\n{format_exc()}")
-            return False
-
     def extract_inline_scripts(self) -> List[Tuple[int, str]]:
-        """
-        Extract all inline scripts with their approximate line numbers in original HTML.
-        
-        Returns:
-            List[Tuple[int, str]]: List of (line_number, script_content) where line_number
-            is the line number where the <script> tag starts (1-indexed).
-        """
         try:
             scripts: List[Tuple[int, str]] = []
             seen: set[str] = set()
-            lines = self.html.splitlines(keepends=False)
             
             for script in self.soup.find_all("script"):
                 if script.string and script.string.strip():
@@ -106,10 +52,12 @@ class ScriptExtractor:
                     if content in seen:
                         continue
                     seen.add(content)
-                    script_tag_str = str(script)
+                    
                     line_no = getattr(script, 'sourceline', None)
                     if line_no is None:
-                        pos = self.html.find(content)
+                        # fallback: find the exact script tag string
+                        script_str = str(script)
+                        pos = self.html.find(script_str)
                         if pos != -1:
                             line_no = self.html.count('\n', 0, pos) + 1
                         else:
