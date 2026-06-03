@@ -74,6 +74,9 @@ class StaticAnalyzer:
                     seen_patterns.add(key)
 
                     if pattern.pattern == r"(?i)\.innerHTML\s*=":
+                        before_match = script[max(0, match.start()-300):match.start()]
+                        if 'replace' in before_match and ('[&<>]' in before_match or '&lt;' in before_match):
+                            continue
                         line_start = script.rfind('\n', 0, match.start()) + 1
                         line_end = script.find('\n', match.start())
                         if line_end == -1:
