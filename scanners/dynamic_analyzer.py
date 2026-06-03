@@ -52,6 +52,10 @@ class DynamicAnalyzer:
             user_agent (Optional[str]): Custom user agent string
             url (Optional[str]): Original URL of the page
             payloads (Optional[List[str]]): List of XSS payloads to inject
+            sink_types (Optional[List[str]]): List of sink types for payload filtering
+            dom_sources (Optional[List[str]]): List of DOM sources to guide injection points
+            timeout (int): Navigation timeout in seconds
+            browser: Optional existing browser instance to reuse
         """
         if not isinstance(html_content, str) or not html_content.strip():
             raise ValueError("HTML content must be a non-empty string.")
@@ -98,7 +102,9 @@ class DynamicAnalyzer:
         """Collect DOM XSS vulnerability reports from instrumented page."""
         try:
             await page.wait_for_timeout(1000)
-            results: list = await page.evaluate("window.__DOMINATOR_RESULTS__ || []")
+            results = await page.evaluate("window.__DOMINATOR_RESULTS__ || []")
+            if results is None:
+                results = []
             logger.debug(f"Instrumentation collected {len(results)} potential vulnerability reports.")
             
             for item in results:
@@ -124,31 +130,12 @@ class DynamicAnalyzer:
             logger.error(f"Error during instrumentation collection: {str(e)}")
 
     async def _check_for_alert(self, page: Page, timeout: int = 2000) -> Optional[str]:
-        """
-        Set up a dialog listener to detect alert/confirm/prompt.
-        
-        Args:
-            page (Page): Playwright page object
-            timeout (int): Time to wait for dialog in milliseconds
-            
-        Returns:
-            Optional[str]: The dialog message if detected, else None
-        """
         try:
-            # Create a future that resolves when dialog appears
-            dialog_message = None
-            async def on_dialog(dialog):
-                nonlocal dialog_message
-                dialog_message = dialog.message
-                await dialog.dismiss()
-            
-            page.on('dialog', on_dialog)
-            # Wait a short time for any dialog to appear
-            await page.wait_for_timeout(timeout)
-            page.remove_listener('dialog', on_dialog)
-            return dialog_message
+            dialog = await page.wait_for_event('dialog', timeout=timeout)
+            await dialog.dismiss()
+            return dialog.message
         except Exception as e:
-            logger.debug(f"Error checking for dialog: {e}")
+            logger.debug(f"Dialog not detected within {timeout}ms: {e}")
             return None
     
     async def _test_url_with_payload(self, page: Page, base_url: str, payload: str, inject_in: str = 'hash') -> bool:
@@ -207,14 +194,12 @@ class DynamicAnalyzer:
                     nonlocal dialog_msg
                     dialog_msg = dialog.message
                     await dialog.dismiss()
-                page.on('dialog', on_dialog)
+                page.once('dialog', on_dialog)
                 
                 await page.goto(test_url, wait_until='networkidle', timeout=self.timeout * 1000)
-                await page.wait_for_timeout(1000)  # extra time for delayed alerts
+                await page.wait_for_timeout(1000)
                 
-                page.remove_listener('dialog', on_dialog)
-                
-                if dialog_msg and 'alert' in dialog_msg.lower():
+                if dialog_msg:
                     occurrence: Occurrence = {
                         "line": None,
                         "column": None,
@@ -250,12 +235,10 @@ class DynamicAnalyzer:
                         nonlocal dialog_msg
                         dialog_msg = dialog.message
                         await dialog.dismiss()
-                    page.on('dialog', on_dialog)
+                    page.once('dialog', on_dialog)
                     
                     await elem.click()
-                    await page.wait_for_timeout(1500)  # wait for potential alert
-                    
-                    page.remove_listener('dialog', on_dialog)
+                    await page.wait_for_timeout(1500)
                     
                     if dialog_msg:
                         occurrence: Occurrence = {
@@ -313,6 +296,7 @@ class DynamicAnalyzer:
     async def execute_in_browser(self) -> None:
         """Execute HTML in a real browser to detect dynamic vulnerabilities."""
         try:
+            p = None
             try:
                 await ensure_browser_installed()
             except BrowserNotInstalledError as e:
@@ -365,43 +349,40 @@ class DynamicAnalyzer:
                     if not inject_locations:
                         inject_locations.add('hash')
                     
-                    # Filter payloads based on sink types (only relevant ones)
-                    sink_lower = ' '.join([s.lower() for s in self.sink_types])
+                    sink_lower_set = {s.lower() for s in self.sink_types}
+
+                    is_html_sink = any(s in sink_lower_set for s in ['innerhtml', 'outerhtml', 'document.write'])
+                    is_eval_sink = any(s in sink_lower_set for s in ['eval', 'settimeout', 'setinterval', 'function'])
+                    is_location_sink = any(s in sink_lower_set for s in ['location', 'href', 'assign', 'replace'])
                     relevant_payloads = []
-                    # First, add payloads from self.payloads that match the sink type
-                    for p in self.payloads:
-                        p_lower = p.lower()
-                        if 'innerhtml' in sink_lower or 'outerhtml' in sink_lower or 'document.write' in sink_lower:
-                            if '<img' in p_lower or '<script' in p_lower or 'onerror' in p_lower:
+
+                    if self.payloads:
+                        for p in self.payloads:
+                            p_lower = p.lower()
+                            if is_html_sink and ('<img' in p_lower or '<script' in p_lower or 'onerror' in p_lower):
                                 if p not in relevant_payloads:
                                     relevant_payloads.append(p)
-                        elif 'eval' in sink_lower or 'settimeout' in sink_lower or 'setinterval' in sink_lower:
-                            # For eval, only pure JS payloads without HTML tags
-                            if ('alert(' in p_lower or 'confirm(' in p_lower or 'prompt(' in p_lower) and '<' not in p_lower and '>' not in p_lower:
+                            elif is_eval_sink and ('alert(' in p_lower or 'confirm(' in p_lower or 'prompt(' in p_lower) and '<' not in p_lower and '>' not in p_lower:
                                 if p not in relevant_payloads:
                                     relevant_payloads.append(p)
-                        elif 'location' in sink_lower:
-                            if 'javascript:' in p_lower:
+                            elif is_location_sink and 'javascript:' in p_lower:
                                 if p not in relevant_payloads:
                                     relevant_payloads.append(p)
-                    
-                    # If no matching payload found for a critical sink, add a default one
-                    if 'eval' in sink_lower and not any(('alert(' in p.lower() or 'confirm(' in p.lower()) and '<' not in p.lower() for p in relevant_payloads):
+
+                    if is_eval_sink and not any('alert(' in p.lower() for p in relevant_payloads):
                         relevant_payloads.append('alert(1)')
-                    if ('innerhtml' in sink_lower or 'document.write' in sink_lower) and not any('<img' in p.lower() or '<script' in p.lower() for p in relevant_payloads):
+                    if is_html_sink and not any('<img' in p.lower() for p in relevant_payloads):
                         relevant_payloads.append('<img src=x onerror=alert(1)>')
-                    if 'location' in sink_lower and not any('javascript:' in p.lower() for p in relevant_payloads):
+                    if is_location_sink and not any('javascript:' in p.lower() for p in relevant_payloads):
                         relevant_payloads.append('javascript:alert(1)')
-                    
-                    # Limit to max 2 payloads
+                        
                     relevant_payloads = relevant_payloads[:2]
-                    
-                    # If still empty, fallback to first two from self.payloads
+
                     if not relevant_payloads and self.payloads:
                         relevant_payloads = self.payloads[:2]
                     
                     logger.debug(f"Testing {len(relevant_payloads)} payloads for {self.url} in locations: {inject_locations}")
-                    
+
                     # Test each payload only in relevant injection locations
                     for payload in relevant_payloads:
                         for loc in inject_locations:
@@ -421,8 +402,19 @@ class DynamicAnalyzer:
                     # For offline content, we can also try to inject payloads into the DOM via evaluate
                     for payload in self.payloads:
                         try:
-                            await page.evaluate(f"document.body.innerHTML += '{payload}';")
-                            await self._check_for_alert(page, timeout=1000)
+                            await page.evaluate("(payload) => { document.body.innerHTML += payload; }", payload)
+                            dialog_msg = await self._check_for_alert(page, timeout=1000)
+                            if dialog_msg:
+                                occurrence: Occurrence = {
+                                "line": None,
+                                "column": None,
+                                "pattern": "DOM XSS via innerHTML injection (offline)",
+                                "context": f"Payload: {payload} triggered alert: {dialog_msg}",
+                                "risk_level": "high",
+                                "priority": 90,
+                                "source": "dynamic"
+                                }
+                                self.result.add_dynamic_occurrence(occurrence)
                         except Exception:
                             pass
 
@@ -433,7 +425,8 @@ class DynamicAnalyzer:
             finally:
                 if close_browser_after:
                     await self.browser.close()
-                    await p.stop()
+                    if p:
+                        await p.stop()
         except Exception as e:
             logger.error(f"Error during dynamic analysis in browser: {str(e)}")
             self.result.set_error(f"Error during dynamic analysis in browser: {str(e)}")
