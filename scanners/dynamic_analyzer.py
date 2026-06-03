@@ -40,7 +40,10 @@ class DynamicAnalyzer:
         sink_types: Optional[List[str]] = None,
         dom_sources: Optional[List[str]] = None,
         timeout: int = 10,
-        browser = None
+        browser = None,
+        level: int = 2,
+        proxy: Optional[str] = None,
+        cookies: Optional[str] = None
     ) -> None:
         """
         Initialize the DynamicAnalyzer with HTML content and external URLs.
@@ -76,6 +79,9 @@ class DynamicAnalyzer:
         self.dom_sources = dom_sources if dom_sources else []
         self.timeout = timeout
         self.browser = browser
+        self.level = level
+        self.proxy = proxy
+        self.cookies = cookies
 
 
     async def analyze_event_handlers(self) -> None:
