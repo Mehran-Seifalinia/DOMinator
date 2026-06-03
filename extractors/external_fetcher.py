@@ -215,7 +215,7 @@ class ExternalFetcher:
                     self.analysis_results[url] = analysis
                     result = analysis
 
-            logger.info(f"Analysis completed for {url}")
+            logger.debug(f"Analysis completed for {url}")
             return result
 
         except Exception as e:
