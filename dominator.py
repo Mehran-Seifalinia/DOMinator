@@ -15,9 +15,11 @@ from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplex
 from utils.logger import get_logger
 from utils.analysis_result import AnalysisResult
 from utils.payloads import get_default_payloads
+from urllib.parse import urlparse
 from argparse import ArgumentParser
 from sys import exit
 from csv import DictWriter
+from collections import deque
 from typing import List, Dict, Any, Optional, Set, Tuple
 from pathlib import Path
 from datetime import datetime
@@ -140,8 +142,6 @@ async def crawl_links(html_content: str, base_url: str, max_depth: int, visited:
     """
     Basic iterative crawler to find additional URLs up to max_depth using BFS.
     """
-    from collections import deque
-    
     if max_depth <= 1:
         return []
     
@@ -187,7 +187,6 @@ async def scan_url_async(
     cookie: Optional[str],
     max_depth: int,
     auto_update: bool,
-    report_format: str,
     session: ClientSession,
     shared_browser = None
 ) -> None:
@@ -196,7 +195,7 @@ async def scan_url_async(
     
     Args:
         url (str): Target URL
-        level (int): Analysis level (affects depth or thoroughness - basic implementation)
+        level (int): Analysis level
         results_queue (Queue): Queue to put results
         timeout (int): Request timeout
         proxy (Optional[str]): Proxy
@@ -208,12 +207,9 @@ async def scan_url_async(
         cookie (Optional[str]): Cookies
         max_depth (int): Crawl depth
         auto_update (bool): Auto-update payloads (placeholder)
-        report_format (str): Report format
         session (ClientSession): aiohttp session
     """
-    try:
-        from urllib.parse import urlparse
-        
+    try:        
         if blacklist:
             blacklist_urls = [bl.strip() for bl in blacklist.split(',')]
             parsed_target = urlparse(url)
@@ -259,74 +255,85 @@ async def scan_url_async(
 
         # Analyze each page separately
         for page_url, page_html in pages_to_scan:
-            logger.info(f"🔄 Analyzing: {page_url}")
-            page_start_time = time()
-            result = AnalysisResult()
-            result.url = page_url
-            result.start_time = datetime.fromtimestamp(page_start_time)
+            try:
+                logger.info(f"🔄 Analyzing: {page_url}")
+                page_start_time = time()
+                result = AnalysisResult()
+                result.url = page_url
+                result.start_time = datetime.fromtimestamp(page_start_time)
 
-            # Extract external scripts for this page
-            external_urls = set()
-            if not no_external:
-                external_urls = await extract_external_scripts(page_html, page_url)
+                # Extract external scripts for this page
+                external_urls = set()
+                if not no_external:
+                    external_urls = await extract_external_scripts(page_html, page_url)
+                    if verbose:
+                        logger.info(f"Found {len(external_urls)} external JS for {page_url}")
+
+                # Static analysis
                 if verbose:
-                    logger.info(f"Found {len(external_urls)} external JS for {page_url}")
+                    logger.info(f"Running static analysis for {page_url} at level {level}...")
+                static_analyzer = StaticAnalyzer(page_html, level=level)
+                static_occurrences = static_analyzer.analyze()
+                result.merge_static_results(static_occurrences)
 
-            # Static analysis
-            if verbose:
-                logger.info(f"Running static analysis for {page_url} at level {level}...")
-            static_analyzer = StaticAnalyzer(page_html)
-            static_occurrences = static_analyzer.analyze()
-            result.merge_static_results(static_occurrences)
+                # Dynamic analysis
+                if verbose:
+                    logger.info(f"Running dynamic analysis for {page_url} at level {level}...")
+                sink_patterns = [occ.get('pattern', '') for occ in result.static_occurrences]
+                dynamic_analyzer = DynamicAnalyzer(
+                    html_content=page_html,
+                    url=page_url,
+                    external_urls=list(external_urls),
+                    headless=headless,
+                    user_agent=user_agent,
+                    payloads=get_default_payloads(),
+                    sink_types=sink_patterns,
+                    dom_sources=result.dom_sources,
+                    timeout=timeout,
+                    browser=shared_browser,
+                    level=level,
+                    proxy=proxy,
+                    cookies=cookie
+                )
+                dynamic_result = await dynamic_analyzer.run_analysis()
+                result.merge_dynamic_results(dynamic_result)
 
-            # Dynamic analysis - only if static analysis found something interesting
-            if verbose:
-                logger.info(f"Running dynamic analysis for {page_url} at level {level}...")
-            sink_patterns = [occ.get('pattern', '') for occ in result.static_occurrences]
-            dynamic_analyzer = DynamicAnalyzer(
-                html_content=page_html,
-                url=page_url,
-                external_urls=list(external_urls),
-                headless=headless,
-                user_agent=user_agent,
-                payloads=get_default_payloads(),
-                sink_types=sink_patterns,
-                dom_sources=result.dom_sources,
-                timeout=timeout,
-                browser=shared_browser
-            )
-            dynamic_result = await dynamic_analyzer.run_analysis()
-            result.merge_dynamic_results(dynamic_result)
+                # Risk calculation
+                if verbose:
+                    logger.info(f"Calculating risk scores for {page_url}...")
+                priority_manager = PriorityManager()
+                methods = []
+                static_patterns = [occ['pattern'] for occ in result.static_occurrences]
+                if any('eval' in p.lower() for p in static_patterns):
+                    methods.append(RiskLevel.EVAL)
+                if any('document.write' in p.lower() for p in static_patterns):
+                    methods.append(RiskLevel.DOCUMENT_WRITE)
+                if any('innerhtml' in p.lower() for p in static_patterns):
+                    methods.append(RiskLevel.INNER_HTML)
 
-            # Risk calculation
-            if verbose:
-                logger.info(f"Calculating risk scores for {page_url}...")
-            priority_manager = PriorityManager()
-            methods = []
-            static_patterns = [occ['pattern'] for occ in result.static_occurrences]
-            if any('eval' in p.lower() for p in static_patterns):
-                methods.append(RiskLevel.EVAL)
-            if any('document.write' in p.lower() for p in static_patterns):
-                methods.append(RiskLevel.DOCUMENT_WRITE)
-            if any('innerhtml' in p.lower() for p in static_patterns):
-                methods.append(RiskLevel.INNER_HTML)
+                priority_score, severity = priority_manager.calculate_optimized_priority(
+                    methods=methods if methods else [RiskLevel.LOCATION],
+                    complexity=ExploitComplexity.MEDIUM,
+                    attack_vector=AttackVector.URL,
+                    event_handlers=[handler.handler for handlers in result.event_handlers.values() for handler in handlers],
+                    dom_results=[occ['pattern'] for occ in result.dynamic_occurrences]
+                )
 
-            priority_score, severity = priority_manager.calculate_optimized_priority(
-                methods=methods if methods else [RiskLevel.LOCATION],
-                complexity=ExploitComplexity.MEDIUM,
-                attack_vector=AttackVector.URL,
-                event_handlers=[handler.handler for handlers in result.event_handlers.values() for handler in handlers],
-                dom_results=[occ['pattern'] for occ in result.dynamic_occurrences]
-            )
+                result.set_priority_score(priority_score)
+                result.set_severity(severity)
+                result.end_time = datetime.now()
+                result.set_completed()
 
-            result.set_priority_score(priority_score)
-            result.set_severity(severity)
-            result.end_time = datetime.now()
-            result.set_completed()
+                await results_queue.put(result.to_dict())
+                logger.debug(f"Analysis completed for {page_url} in {result.elapsed_time:.2f} seconds")
 
-            await results_queue.put(result.to_dict())
-            logger.debug(f"Analysis completed for {page_url} in {result.elapsed_time:.2f} seconds")
-        # ========== END OF PER-PAGE ANALYSIS ==========
+            except Exception as e:
+                logger.error(f"Error analyzing {page_url}: {str(e)}")
+                result = AnalysisResult()
+                result.url = page_url
+                result.set_error(str(e))
+                await results_queue.put(result.to_dict())
+                continue
 
     except Exception as e:
         logger.error(f"Error while scanning {url}: {str(e)}")
@@ -349,7 +356,6 @@ def write_results_to_csv(results: List[Dict[str, Any]], output_file: str) -> Non
         writer = DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for result in results:
-            # Fix event_handlers count: sum of lengths
             event_handlers_dict = result.get("event_handlers", {})
             total_handlers = sum(len(handlers) for handlers in event_handlers_dict.values())
             
@@ -682,7 +688,7 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
         score = res.get("priority_score", 0)
         elapsed = res.get("elapsed_time", 0)
 
-                # Don't show severity if it's Informative and no vulns
+        # Don't show severity if it's Informative and no vulns
         total_vulns = len(res.get("static_occurrences", [])) + len(res.get("dynamic_occurrences", [])) + \
                       sum(len(v) for v in res.get("event_handlers", {}).values())
         if severity == "Informative" and total_vulns == 0:
@@ -698,7 +704,6 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
         if status == "error":
             print(f"    ❌ Error: {res.get('error_message', 'No details')}")
             continue
-
 
         static = [occ for occ in res.get("static_occurrences", []) if not is_false_positive(occ)]
         dynamic = [occ for occ in res.get("dynamic_occurrences", []) if not is_false_positive(occ)]
@@ -733,6 +738,8 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
             print(f"         💡 {hint}")
 
         for occ in external:
+            if is_false_positive(occ):
+                continue
             pattern = occ.get("pattern", "?")
             line = occ.get("line", "N/A")
             hint = get_exploit_hint(pattern).split('.')[0]
@@ -760,9 +767,7 @@ async def main() -> None:
     from logging import WARNING, DEBUG, INFO, getLogger, root
     from utils.logger import set_console_level
     if args.quiet:
-        # Set console handler to WARNING (suppress INFO and DEBUG)
         set_console_level(WARNING)
-        # Also set all existing loggers to WARNING to be safe
         root.setLevel(WARNING)
         for name in root.manager.loggerDict:
             getLogger(name).setLevel(WARNING)
@@ -798,10 +803,8 @@ async def main() -> None:
     args.timeout = validate_timeout(args.timeout)
     results_queue = Queue()
     
-    # Limit concurrent threads
     semaphore = Semaphore(args.threads)
 
-    # Configure client session
     timeout = ClientTimeout(total=args.timeout)
     session_kwargs = {"timeout": timeout}
     if args.proxy:
@@ -823,8 +826,7 @@ async def main() -> None:
                         args.no_external, headless_mode,
                         args.user_agent, args.cookie,
                         args.max_depth, args.auto_update,
-                        args.report_format, session,
-                        shared_browser=shared_browser
+                        session, shared_browser=shared_browser
                     )
             tasks = [limited_scan_url(url) for url in args.url]
             await gather(*tasks)
