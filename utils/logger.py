@@ -27,19 +27,6 @@ VALID_LOG_LEVELS: dict = {
 }
 LOG_LEVEL: int = VALID_LOG_LEVELS.get(getenv("LOG_LEVEL", "DEBUG").upper(), DEBUG)
 
-def setup_log_directory() -> None:
-    """
-    Create the log directory if it doesn't exist.
-    
-    Raises:
-        OSError: If directory creation fails
-    """
-    try:
-        makedirs(LOG_DIR, exist_ok=True)
-    except OSError as e:
-        print(f"Failed to create log directory: {e}", file=stderr)
-        raise
-
 def setup_handlers() -> tuple:
     """
     Set up logging handlers.
@@ -57,6 +44,7 @@ def setup_handlers() -> tuple:
     console_handler.setFormatter(formatter)
     
     try:
+        makedirs(LOG_DIR, exist_ok=True)
         file_handler = RotatingFileHandler(
             LOG_FILE,
             maxBytes=MAX_BYTES,
@@ -65,14 +53,13 @@ def setup_handlers() -> tuple:
         )
         file_handler.setLevel(LOG_LEVEL)
         file_handler.setFormatter(formatter)
-    except IOError as e:
+    except (IOError, OSError) as e:
         print(f"Failed to setup file logging: {e}", file=stderr)
         file_handler = None
     
     return console_handler, file_handler
 
 # Initialize logging infrastructure
-setup_log_directory()
 _console_handler, _file_handler = setup_handlers()
 
 def get_logger(name: Optional[str] = None) -> Logger:
