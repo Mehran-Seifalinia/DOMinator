@@ -60,12 +60,27 @@ class StaticAnalyzer:
             'low': RiskLevel.LOCATION,
             'unknown': RiskLevel.INNER_HTML,
         }
+        seen_patterns = set()
 
         # Analyze inline scripts
         inline_scripts = self.extractor.extract_inline_scripts()  # returns List[Tuple[int, str]]
         for line_num, script in inline_scripts:
             for pattern in DANGEROUS_JS_PATTERNS:
                 for match in pattern.finditer(script):
+                    context_snippet = script[max(0, match.start()-50):match.end()+50][:100]
+                    key = (match.group(), context_snippet)
+                    if key in seen_patterns:
+                        continue
+                    seen_patterns.add(key)
+
+                    if pattern.pattern == r"(?i)\.innerHTML\s*=":
+                        line_start = script.rfind('\n', 0, match.start()) + 1
+                        line_end = script.find('\n', match.start())
+                        if line_end == -1:
+                            line_end = len(script)
+                        current_line = script[line_start:line_end]
+                        if 'replace' in current_line and ('[&<>]' in current_line or '&lt;' in current_line):
+                            continue
                     risk_level_str = get_risk_level(match.group())
                     risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
                     priority, _ = self.priority_manager.calculate_optimized_priority(
@@ -106,6 +121,10 @@ class StaticAnalyzer:
                         "priority": priority,
                         "source": "static"
                     }
+                    key = (matched_pattern, str(line)[:50])
+                    if key in seen_patterns:
+                        continue
+                    seen_patterns.add(key)
                     self.result.add_static_occurrence(occurrence)
                     break
 
