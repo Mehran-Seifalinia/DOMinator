@@ -310,14 +310,24 @@ async def scan_url_async(
                     methods.append(RiskLevel.DOCUMENT_WRITE)
                 if any('innerhtml' in p.lower() for p in static_patterns):
                     methods.append(RiskLevel.INNER_HTML)
+                dynamic_patterns = [occ['pattern'] for occ in result.dynamic_occurrences]
+                if any('srcdoc' in p.lower() for p in dynamic_patterns):
+                    methods.append(RiskLevel.SRCDOC)
 
-                priority_score, severity = priority_manager.calculate_optimized_priority(
-                    methods=methods if methods else [RiskLevel.LOCATION],
-                    complexity=ExploitComplexity.MEDIUM,
-                    attack_vector=AttackVector.URL,
-                    event_handlers=[handler.handler for handlers in result.event_handlers.values() for handler in handlers],
-                    dom_results=[occ['pattern'] for occ in result.dynamic_occurrences]
-                )
+                if methods:
+                    priority_score, severity = priority_manager.calculate_optimized_priority(
+                        methods=methods,
+                        complexity=ExploitComplexity.MEDIUM,
+                        attack_vector=AttackVector.URL,
+                        event_handlers=[handler.handler for handlers in result.event_handlers.values() for handler in handlers],
+                        dom_results=[occ['pattern'] for occ in result.dynamic_occurrences]
+                    )
+                    if not result.dynamic_occurrences and result.static_occurrences:
+                        priority_score = min(priority_score, 10.0)
+                        severity = "Informative"
+                else:
+                    priority_score = 0.0
+                    severity = "None"
 
                 result.set_priority_score(priority_score)
                 result.set_severity(severity)
@@ -653,22 +663,29 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
     Print a human-readable summary of scan results to the console,
     including vulnerabilities, severity, and basic exploit hints.
     """
-    def get_exploit_hint(pattern: str, context: str = "") -> str:
+    def get_exploit_hint(occ: dict) -> str:
+        pattern = occ.get("pattern", "")
+        context = occ.get("context", "")
         pattern_lower = pattern.lower()
         if "eval" in pattern_lower:
-            return "Try injecting code in URL fragment/hash: #javascript:alert(1)"
+            if "location.search" in pattern_lower or "param value" in context:
+                return "Inject in query parameter: ?code=alert(1)"
+            elif "location.hash" in pattern_lower:
+                return "Inject in URL fragment: #alert(1)"
+            else:
+                return "Try: ?parameter=alert(1) or #alert(1)"
         elif "document.write" in pattern_lower:
             return "Payload example: <img src=x onerror=alert(1)>"
-        elif "innerhtml" in pattern_lower:
+        elif "innerhtml" in pattern_lower or "srcdoc" in pattern_lower:
             return "Use event vector: <img src=x onerror=alert(1)>"
         elif "settimeout" in pattern_lower or "setinterval" in pattern_lower:
-            return "If first argument is controllable, inject function call"
-        elif "location" in pattern_lower or "window.location" in pattern_lower:
+            return "If first argument controllable, inject function call"
+        elif "location" in pattern_lower:
             return "Check if location is set from URL hash/parameter"
-        elif "onclick" in pattern_lower or "onerror" in pattern_lower:
-            return "Test with javascript:alert(1) or &quot; onmouseover=alert(1)"
+        elif "onclick" in pattern_lower:
+            return "Test with javascript:alert(1) or break string: alert(1)\");"
         else:
-            return "Inspect context for injection point; try <script>alert(1)</script>"
+            return "Inspect context; try <script>alert(1)</script>"
 
     def is_false_positive(occ: Dict) -> bool:
         pattern = occ.get("pattern", "")
@@ -717,15 +734,18 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
 
         print(f"    ⚠️ Found {total} potential issue(s):")
 
-        for occ in static:
-            if is_false_positive(occ):
-                continue
-            pattern = occ.get("pattern", "?")
-            line = occ.get("line", "N/A")
-            src = occ.get("source", "static")
-            hint = get_exploit_hint(pattern).split('.')[0]
-            print(f"      [{src.upper()}] {pattern} (line {line})")
-            print(f"         💡 {hint}")
+        if dynamic:
+            pass
+        else:
+            for occ in static:
+                if is_false_positive(occ):
+                    continue
+                pattern = occ.get("pattern", "?")
+                line = occ.get("line", "N/A")
+                src = occ.get("source", "static")
+                hint = get_exploit_hint(occ)
+                print(f"      [{src.upper()}] {pattern} (line {line}) [UNVERIFIED]")
+                print(f"         💡 {hint} (No alert triggered - possible false positive)")
 
         for occ in dynamic:
             if is_false_positive(occ):
@@ -733,7 +753,7 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
             pattern = occ.get("pattern", "?")
             line = occ.get("line", "N/A")
             src = occ.get("source", "dynamic")
-            hint = get_exploit_hint(pattern).split('.')[0]
+            hint = get_exploit_hint(occ).split('.')[0]
             print(f"      [{src.upper()}] {pattern} (line {line})")
             print(f"         💡 {hint}")
 
@@ -742,17 +762,18 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
                 continue
             pattern = occ.get("pattern", "?")
             line = occ.get("line", "N/A")
-            hint = get_exploit_hint(pattern).split('.')[0]
+            hint = get_exploit_hint(occ).split('.')[0]
             print(f"      [EXTERNAL] {pattern} (line {line})")
             print(f"         💡 {hint}")
 
-        for etype, handlers in event_handlers.items():
+        for handlers in event_handlers.items():
             for h in handlers:
                 tag = h.get("tag", "?")
                 attr = h.get("attribute", "?")
                 code = h.get("handler", "")
                 line = h.get("line", "N/A")
-                hint = get_exploit_hint(attr).split('.')[0]
+                temp_occ = {"pattern": attr, "context": code}
+                hint = get_exploit_hint(temp_occ).split('.')[0]
                 print(f"      [EVENT] {tag}[{attr}] = \"{code[:50]}{'...' if len(code)>50 else ''}\" (line {line})")
                 print(f"         💡 {hint}")
 
