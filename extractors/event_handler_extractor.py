@@ -30,21 +30,23 @@ class EventHandlerExtractor:
     dynamic analysis.
     """
 
-    def __init__(self, html: str) -> None:
+    def __init__(self, html: str, url: str = None) -> None:
         """
         Initialize the EventHandlerExtractor with HTML content.
 
         Args:
             html (str): The HTML content to parse.
+            url (str, optional): The source URL of the HTML. Defaults to None.
 
         Raises:
             ValueError: If HTML content is invalid, empty, too large, or parsing fails.
         """
+        self.url = url
         if not isinstance(html, str) or not html.strip():
             logger.error("Invalid input: HTML must be a non-empty string.")
             raise ValueError("HTML content must be a non-empty string.")
 
-        if len(html) > MAX_HTML_SIZE:
+        if len(html.encode('utf-8')) > MAX_HTML_SIZE:
             logger.error(f"HTML content exceeds maximum size ({MAX_HTML_SIZE} bytes).")
             raise ValueError("HTML content is too large.")
 
@@ -68,7 +70,7 @@ class EventHandlerExtractor:
             of EventHandler objects.
         """
         event_handlers: Dict[str, List[EventHandler]] = {}
-        debug_handlers = []  # For batch logging
+        handler_found = False
 
         for tag in self.soup.find_all(True):
             line = tag.sourceline if hasattr(tag, 'sourceline') else None
@@ -96,13 +98,12 @@ class EventHandlerExtractor:
                     )
                     event_handlers[attr_name_lower].append(handler)
 
-                    # Collect for batch debug logging (truncate sensitive data)
+                    # Log each extracted handler (truncate sensitive data)
                     truncated_handler = attr_value[:50] + "..." if len(attr_value) > 50 else attr_value
-                    debug_handlers.append(f"tag: {tag.name}, attr: {attr_name_lower}, handler: {truncated_handler!r}")
+                    logger.debug(f"Extracted handler - tag: {tag.name}, attr: {attr_name_lower}, handler: {truncated_handler!r}")
+                    handler_found = True
 
-        if debug_handlers:
-            logger.debug(f"Extracted handlers: {'; '.join(debug_handlers)}")
-        else:
+        if not handler_found:
             logger.debug("No event handlers found.")
 
         total_handlers = sum(len(handlers) for handlers in event_handlers.values())
@@ -142,26 +143,16 @@ class EventHandlerExtractor:
             logger.error(f"Error converting event handlers to JSON: {str(e)}")
             raise
 
-    async def extract(self, session: Any, url: str, timeout: int) -> AnalysisResult:
+    def extract(self) -> AnalysisResult:
         """
-        Extract event handlers from the given URL.
-
-        Args:
-            session (Any): HTTP session for making requests (reserved for future use).
-            url (str): Target URL to analyze.
-            timeout (int): Request timeout in seconds (reserved for future use).
+        Extract event handlers from the already loaded HTML.
 
         Returns:
             AnalysisResult: Result of the extraction process.
-
-        Note:
-            Currently performs local extraction from pre-parsed HTML. The session and
-            timeout parameters are reserved for future implementation of remote URL
-            fetching and async operations.
         """
         try:
             result = AnalysisResult()
-            result.url = url
+            result.url = self.url if self.url else "unknown"
 
             event_handlers = self.extract_event_handlers()
             for event_type, handlers in event_handlers.items():
@@ -172,8 +163,8 @@ class EventHandlerExtractor:
             return result
 
         except Exception as e:
-            logger.error(f"Error extracting event handlers from {url}: {str(e)}")
+            logger.error(f"Error extracting event handlers from {self.url}: {str(e)}")
             result = AnalysisResult()
-            result.url = url
+            result.url = self.url
             result.set_error(str(e))
             return result
