@@ -67,11 +67,11 @@ class StaticAnalyzer:
         for line_num, script in inline_scripts:
             for pattern in DANGEROUS_JS_PATTERNS:
                 for match in pattern.finditer(script):
-                    context_snippet = script[max(0, match.start()-50):match.end()+50][:100]
-                    unique_key = (line_num, match.start(), match.group(), context_snippet)
+                    unique_key = (line_num, match.group())
                     if unique_key in seen_occurrences:
                         continue
                     seen_occurrences.add(unique_key)
+                    context_snippet = script[max(0, match.start()-50):match.end()+50][:100]
 
                     if pattern.pattern == r"(?i)\.innerHTML\ s*=":
                         if 'replace' in script and ('[&<>]' in script or '&lt;' in script):
