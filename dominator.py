@@ -322,9 +322,14 @@ async def scan_url_async(
                         event_handlers=[handler.handler for handlers in result.event_handlers.values() for handler in handlers],
                         dom_results=[occ['pattern'] for occ in result.dynamic_occurrences]
                     )
-                    if not result.dynamic_occurrences and result.static_occurrences:
-                        priority_score = min(priority_score, 10.0)
-                        severity = "Informative"
+                    dynamic_risk_levels = [occ.get('risk_level', '').lower() for occ in result.dynamic_occurrences]
+                    if 'critical' in dynamic_risk_levels:
+                        severity = 'Critical'
+                        priority_score = max(priority_score, 90.0)
+                    elif 'high' in dynamic_risk_levels:
+                        if severity != 'Critical':
+                            severity = 'High'
+                            priority_score = max(priority_score, 70.0)
                 else:
                     priority_score = 0.0
                     severity = "None"
@@ -727,44 +732,56 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
         event_handlers = res.get("event_handlers", {})
         external = res.get("external_script_risks", [])
 
-        total = len(static) + len(dynamic) + sum(len(v) for v in event_handlers.values()) + len(external)
+        def has_valid_pattern(occ):
+            pattern = occ.get("pattern", "")
+            return pattern and pattern != "?"
+        
+        filtered_static = [occ for occ in static if has_valid_pattern(occ)]
+        filtered_dynamic = [occ for occ in dynamic if has_valid_pattern(occ)]
+        total = len(filtered_static) + len(filtered_dynamic) + sum(len(v) for v in event_handlers.values()) + len(external)
         if total == 0:
             print("    ✅ No DOM XSS vulnerabilities detected.")
             continue
 
         print(f"    ⚠️ Found {total} potential issue(s):")
-
-        if dynamic:
-            pass
-        else:
-            for occ in static:
-                if is_false_positive(occ):
-                    continue
-                pattern = occ.get("pattern", "?")
-                line = occ.get("line", "N/A")
-                src = occ.get("source", "static")
-                hint = get_exploit_hint(occ)
-                print(f"      [{src.upper()}] {pattern} (line {line}) [UNVERIFIED]")
-                print(f"         💡 {hint} (No alert triggered - possible false positive)")
-
-        for occ in dynamic:
+        
+        # Dynamic occurrences (confirmed or high confidence)
+        for idx, occ in enumerate(dynamic):
             if is_false_positive(occ):
                 continue
             pattern = occ.get("pattern", "?")
             line = occ.get("line", "N/A")
             src = occ.get("source", "dynamic")
+            context = occ.get("context", "")
+            injected_url = occ.get("injected_url", "")
             hint = get_exploit_hint(occ).split('.')[0]
+            if not pattern or pattern == "?":
+                logger.warning(f"Skipping dynamic occurrence {idx} due to missing pattern: {occ}")
+                continue
             print(f"      [{src.upper()}] {pattern} (line {line})")
+            if context:
+                short_ctx = context[:100] + "..." if len(context) > 100 else context
+                print(f"         📝 Context: {short_ctx}")
+            if injected_url:
+                print(f"         🔗 URL: {injected_url}")
             print(f"         💡 {hint}")
 
-        for occ in external:
+        # Static occurrences (unverified, potential false positives)
+        for idx, occ in enumerate(static):
             if is_false_positive(occ):
                 continue
             pattern = occ.get("pattern", "?")
             line = occ.get("line", "N/A")
+            src = occ.get("source", "static")
+            context = occ.get("context", "")
             hint = get_exploit_hint(occ).split('.')[0]
-            print(f"      [EXTERNAL] {pattern} (line {line})")
-            print(f"         💡 {hint}")
+            if not pattern or pattern == "?":
+                continue
+            print(f"      [{src.upper()}] {pattern} (line {line}) [UNVERIFIED]")
+            if context:
+                short_ctx = context[:100] + "..." if len(context) > 100 else context
+                print(f"         📝 Context: {short_ctx}")
+            print(f"         💡 {hint} (No alert triggered - may be false positive)")
 
         for handlers in event_handlers.items():
             for h in handlers:
