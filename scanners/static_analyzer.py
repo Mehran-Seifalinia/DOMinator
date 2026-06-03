@@ -22,12 +22,13 @@ class StaticAnalyzer:
     and HTML elements that could lead to DOM XSS attacks.
     """
     
-    def __init__(self, html: str) -> None:
+    def __init__(self, html: str, level: int = 2) -> None:
         """
         Initialize the StaticAnalyzer with HTML content.
         
         Args:
             html (str): The HTML content to analyze
+            level (int): Analysis level (1-4, currently unused, reserved for future)
             
         Raises:
             ValueError: If HTML content is invalid or too large
@@ -68,7 +69,7 @@ class StaticAnalyzer:
                     risk_level_str = get_risk_level(match.group())
                     risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
                     priority, _ = self.priority_manager.calculate_optimized_priority(
-                        methods=[risk_level.name],
+                        methods=[risk_level],
                         complexity=ExploitComplexity.MEDIUM
                     )
                     occurrence: Occurrence = {
@@ -93,7 +94,7 @@ class StaticAnalyzer:
                     risk_level_str = get_risk_level(matched_pattern)
                     risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
                     priority, _ = self.priority_manager.calculate_optimized_priority(
-                        methods=[risk_level.name],
+                        methods=[risk_level],
                         complexity=ExploitComplexity.MEDIUM
                     )
                     occurrence: Occurrence = {
@@ -125,7 +126,7 @@ class StaticAnalyzer:
                 risk_level_str = get_risk_level(match.group())
                 risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
                 priority, _ = self.priority_manager.calculate_optimized_priority(
-                    methods=[risk_level.name],
+                    methods=[risk_level],
                     complexity=ExploitComplexity.MEDIUM
                 )
                 occurrence: Occurrence = {
