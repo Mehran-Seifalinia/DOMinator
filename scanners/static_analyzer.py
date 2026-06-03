@@ -115,7 +115,7 @@ class StaticAnalyzer:
             key = (occ['pattern'], occ['context'][:50])
             seen_patterns.add(key)
 
-        for pattern in DANGEROUS_JS_PATTERNS + DANGEROUS_HTML_PATTERNS:
+        for pattern in DANGEROUS_JS_PATTERNS:
             for match in pattern.finditer(self.html):
                 context = self.html[max(0, match.start()-30):match.end()+30]
                 key = (match.group(), context[:50])
