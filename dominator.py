@@ -163,9 +163,9 @@ async def crawl_links(html_content: str, base_url: str, max_depth: int, visited:
                     full_url = urljoin(current_url, href)
                     if full_url in visited:
                         continue
-                    visited.add(full_url)
                     child_html = await fetch_html(full_url, session, timeout, headers)
                     if child_html is not None and len(child_html) > 0:
+                        visited.add(full_url)
                         all_pages.append((full_url, child_html))
                         queue.append((full_url, child_html, current_depth + 1))
         except Exception as e:
