@@ -101,7 +101,7 @@ class Payloads:
             self.payload_set.add(new_payload)
             self.logger.info(f"Payload added: {payload}")
 
-    def update_payload(self, old_payload: str, new_payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.BASE64) -> bool:
+    def update_payload(self, old_payload: str, new_payload: str, payload_type: PayloadType = PayloadType.SIMPLE, encoding: Encoding = Encoding.RAW) -> bool:
         """
         Update an existing payload.
         
