@@ -60,7 +60,7 @@ class StaticAnalyzer:
             'low': RiskLevel.LOCATION,
             'unknown': RiskLevel.INNER_HTML,
         }
-        seen_patterns = set()
+        seen_occurrences = set()
 
         # Analyze inline scripts
         inline_scripts = self.extractor.extract_inline_scripts()  # returns List[Tuple[int, str]]
@@ -68,14 +68,13 @@ class StaticAnalyzer:
             for pattern in DANGEROUS_JS_PATTERNS:
                 for match in pattern.finditer(script):
                     context_snippet = script[max(0, match.start()-50):match.end()+50][:100]
-                    key = (match.group(), context_snippet)
-                    if key in seen_patterns:
+                    unique_key = (line_num, match.start(), match.group(), context_snippet)
+                    if unique_key in seen_occurrences:
                         continue
-                    seen_patterns.add(key)
+                    seen_occurrences.add(unique_key)
 
-                    if pattern.pattern == r"(?i)\.innerHTML\s*=":
-                        before_match = script[max(0, match.start()-300):match.start()]
-                        if 'replace' in before_match and ('[&<>]' in before_match or '&lt;' in before_match):
+                    if pattern.pattern == r"(?i)\.innerHTML\ s*=":
+                        if 'replace' in script and ('[&<>]' in script or '&lt;' in script):
                             continue
                         line_start = script.rfind('\n', 0, match.start()) + 1
                         line_end = script.find('\n', match.start())
@@ -124,43 +123,12 @@ class StaticAnalyzer:
                         "priority": priority,
                         "source": "static"
                     }
-                    key = (matched_pattern, str(line)[:50])
-                    if key in seen_patterns:
+                    unique_key = (line, tag, attr, matched_pattern)
+                    if unique_key in seen_occurrences:
                         continue
-                    seen_patterns.add(key)
+                    seen_occurrences.add(unique_key)
                     self.result.add_static_occurrence(occurrence)
                     break
-
-        # Fallback: search entire HTML for dangerous patterns
-        seen_patterns = set()
-        for occ in self.result.static_occurrences:
-            key = (occ['pattern'], occ['context'][:50])
-            seen_patterns.add(key)
-
-        for pattern in DANGEROUS_JS_PATTERNS:
-            for match in pattern.finditer(self.html):
-                context = self.html[max(0, match.start()-30):match.end()+30]
-                key = (match.group(), context[:50])
-                if key in seen_patterns:
-                    continue
-                seen_patterns.add(key)
-                line_no = self.html.count('\n', 0, match.start()) + 1
-                risk_level_str = get_risk_level(match.group())
-                risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
-                priority, _ = self.priority_manager.calculate_optimized_priority(
-                    methods=[risk_level],
-                    complexity=ExploitComplexity.MEDIUM
-                )
-                occurrence: Occurrence = {
-                    "line": line_no,
-                    "column": match.start(),
-                    "pattern": match.group(),
-                    "context": context,
-                    "risk_level": risk_level_str,
-                    "priority": priority,
-                    "source": "static"
-                }
-                self.result.add_static_occurrence(occurrence)
 
     def extract_dom_sources(self) -> List[str]:
         """
