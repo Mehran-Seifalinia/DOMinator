@@ -17,7 +17,7 @@ class Occurrence(TypedDict):
         pattern (str): The pattern that was matched
         context (str): Context around the occurrence
         risk_level (str): Risk level of the occurrence
-        priority (str): Priority level of the occurrence
+        priority (float): Priority level of the occurrence
         source (str): Source of the occurrence ('static', 'dynamic', 'external', or 'event_handler')
     """
     line: Optional[int]
@@ -25,7 +25,7 @@ class Occurrence(TypedDict):
     pattern: str
     context: str
     risk_level: str
-    priority: str
+    priority: float
     source: str
 
 @dataclass
@@ -48,7 +48,7 @@ class EventHandler:
     line: Optional[int] = None
     column: Optional[int] = None
     risk_level: str = 'unknown'
-    priority: str = 'unknown'
+    priority: float = 0.0
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -94,7 +94,7 @@ class AnalysisResult:
         Raises:
             ValueError: If occurrence is invalid (missing required fields)
         """
-        self._validate_occurrence(occurrence, ignore_source=True)
+        self._validate_occurrence(occurrence)
         occurrence['source'] = 'static'
         self.static_occurrences.append(occurrence)
 
@@ -108,7 +108,7 @@ class AnalysisResult:
         Raises:
             ValueError: If occurrence is invalid
         """
-        self._validate_occurrence(occurrence, ignore_source=True)
+        self._validate_occurrence(occurrence)
         occurrence['source'] = 'dynamic'
         self.dynamic_occurrences.append(occurrence)
 
@@ -134,7 +134,7 @@ class AnalysisResult:
         Raises:
             ValueError: If occurrence is invalid
         """
-        self._validate_occurrence(occurrence, ignore_source=True)
+        self._validate_occurrence(occurrence)
         occurrence['source'] = 'external'
         self.external_script_risks.append(occurrence)
 
