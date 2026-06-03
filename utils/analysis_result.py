@@ -19,6 +19,7 @@ class Occurrence(TypedDict):
         risk_level (str): Risk level of the occurrence
         priority (float): Priority level of the occurrence
         source (str): Source of the occurrence ('static', 'dynamic', 'external', or 'event_handler')
+        injected_url (Optional[str]): Full URL with injected payload (for dynamic XSS)
     """
     line: Optional[int]
     column: Optional[int]
@@ -27,6 +28,7 @@ class Occurrence(TypedDict):
     risk_level: str
     priority: float
     source: str
+    injected_url: Optional[str]
 
 @dataclass
 class EventHandler:
