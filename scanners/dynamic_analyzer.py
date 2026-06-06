@@ -125,17 +125,71 @@ class DynamicAnalyzer:
                     logger.debug("Skipping instrumentation report because dialog was already captured.")
                     continue
 
+                # Build exploit URL if we have a payload and a current URL
+                exploit_url = None
+                if payload and self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
+                    current_url = page.url
+                    from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, quote
+                    parsed = urlparse(current_url)
+                    
+                    # Determine which part (hash or query) contains the marker
+                    # We need to replace the marker value with the actual payload
+                    if '#' in current_url and '__DOMINATOR_TEST__' in current_url.split('#')[-1]:
+                        # Replace hash part
+                        new_fragment = current_url.split('#')[-1].replace('__DOMINATOR_TEST__', quote(payload, safe=''))
+                        exploit_url = current_url.split('#')[0] + '#' + new_fragment
+                    elif '?' in current_url:
+                        # Replace marker in query parameters
+                        query_params = parse_qs(parsed.query, keep_blank_values=True)
+                        new_params = {}
+                        for key, values in query_params.items():
+                            new_values = []
+                            for val in values:
+                                if val == '__DOMINATOR_TEST__':
+                                    new_values.append(payload)
+                                else:
+                                    new_values.append(val)
+                            new_params[key] = new_values if len(new_values) > 1 else new_values[0]
+                        new_query = urlencode(new_params, doseq=True)
+                        exploit_url = urlunparse(parsed._replace(query=new_query))
+                    
+                    # If no marker found but source indicates a specific parameter name (e.g., 'name')
+                    # we can try to extract that parameter name from the source string
+                    if not exploit_url and 'param value' in source:
+                        # Example source: 'location.search (param value)' - we need param name
+                        # We can parse the current URL and replace all values with payload? 
+                        # Simpler: replace all query parameter values with payload
+                        from urllib.parse import parse_qs, urlencode
+                        parsed = urlparse(current_url)
+                        query_params = parse_qs(parsed.query, keep_blank_values=True)
+                        new_params = {}
+                        for key in query_params:
+                            new_params[key] = payload  # replace every param value with payload
+                        new_query = urlencode(new_params, doseq=True)
+                # Clean up exploit URL: remove the generic test parameter
+                if exploit_url:
+                    from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+                    parsed_clean = urlparse(exploit_url)
+                    query_clean = parse_qs(parsed_clean.query, keep_blank_values=True)
+                    # Remove __dominator_test__ if present
+                    if '__dominator_test__' in query_clean:
+                        del query_clean['__dominator_test__']
+                    # If after removal there are no query params, keep empty string
+                    new_query = urlencode(query_clean, doseq=True) if query_clean else ''
+                    exploit_url = urlunparse(parsed_clean._replace(query=new_query))
+
                 occurrence: Occurrence = {
                     "line": None,
                     "column": None,
                     "pattern": f"{sink} (source: {source})",
                     "context": f"[{sink}] {context}",
-                    "risk_level": "informative",
+                    "risk_level": "high",  # dynamic confirmed -> high risk
                     "priority": self.priority_manager.get_priority_from_risk_level("high"),
-                    "source": "dynamic"
+                    "source": "dynamic",
+                    "injected_url": exploit_url
                 }
                 if payload:
-                    occurrence['context'] += f' | PAYLOAD: {payload}'
+                    occurrence['context'] += f' | SUGGESTED PAYLOAD: {payload}'
                 self.result.add_dynamic_occurrence(occurrence)
                 
         except Exception as e:
@@ -254,52 +308,91 @@ class DynamicAnalyzer:
                 else:
                     logger.warning(f"Instrumentation script not found at {INSTRUMENT_SCRIPT_PATH}")
 
-                # Case 1: We have a real URL - test with payloads only if sink_types indicate risk
+                # Case 1: We have a real URL
                 if self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
-                    # First load clean page to set up any initial state
+                    # First load clean page
                     await page.goto(self.url, wait_until='networkidle')
                     await self._click_buttons_and_check(page)
                     
-                    # Instead of brute-force payload testing, we only inject a marker value
-                    # into relevant DOM sources (hash, search, window.name) and rely on
-                    # instrumentation to detect if it reaches a sink.
+                    # ========== NEW: Extract actual parameter names from page scripts ==========
+                    # Extract all parameter names used with URLSearchParams.get() or similar
+                    param_names = await page.evaluate('''
+                        () => {
+                            const paramNames = new Set();
+                            // Get all script contents (inline and external)
+                            const scripts = document.querySelectorAll('script');
+                            scripts.forEach(script => {
+                                const content = script.textContent || script.innerText;
+                                if (content) {
+                                    // Match patterns like params.get('name') or params.get("id")
+                                    const regex = /\\b(?:URLSearchParams\\.get|params\\.get|new URLSearchParams\\([^)]*\\)\\.get)\\s*\\(\\s*['"]([^'"]+)['"]\\s*\\)/gi;
+                                    let match;
+                                    while ((match = regex.exec(content)) !== null) {
+                                        paramNames.add(match[1]);
+                                    }
+                                    // Also match location.search.split etc. but simpler: look for query string parsing
+                                    const paramRegex = /[?&]([^=&#]+)=/g;
+                                    let paramMatch;
+                                    while ((paramMatch = paramRegex.exec(content)) !== null) {
+                                        paramNames.add(paramMatch[1]);
+                                    }
+                                }
+                            });
+                            return Array.from(paramNames);
+                        }
+                    ''')
                     
-                    # First, load the original URL to let instrumentation hook sinks.
-                    await page.goto(self.url, wait_until='networkidle')
+                    logger.debug(f"Extracted parameter names from page scripts: {param_names}")
                     
-                    # Determine which sources are present based on dom_sources.
+                    # Determine which sources are present based on dom_sources (existing logic)
                     inject_hash = any('hash' in src.lower() for src in self.dom_sources)
                     inject_search = any('search' in src.lower() or 'query' in src.lower() for src in self.dom_sources)
                     
-                    # Default to both if no sources detected (common DOM XSS patterns)
                     if not inject_hash and not inject_search:
                         inject_hash = True
                         inject_search = True
                     
                     marker = '__DOMINATOR_TEST__'
                     
-                    # Test injection via URL hash if relevant
+                    # Test injection via URL hash
                     if inject_hash:
                         test_url_hash = self.url + '#' + marker
                         await page.goto(test_url_hash, wait_until='networkidle')
                         await page.wait_for_timeout(500)
                     
-                    # Test injection via URL query parameter if relevant
-                    if inject_search:
-                        from urllib.parse import urlparse, urlunparse, quote
+                    # Test injection via URL query parameters - ONLY those extracted
+                    if inject_search and param_names:
+                        from urllib.parse import urlparse, urlunparse, urlencode, parse_qs
                         parsed = urlparse(self.url)
-                        # Replace or add query parameter
-                        if parsed.query:
-                            new_query = parsed.query + '&__dominator_test__=' + quote(marker)
-                        else:
-                            new_query = '__dominator_test__=' + quote(marker)
+                        # Build new query: keep existing structure but set extracted params to marker
+                        existing_params = parse_qs(parsed.query)
+                        new_params = {}
+                        # Preserve all existing parameters (their values overridden)
+                        for key in existing_params:
+                            new_params[key] = marker
+                        # Add each extracted parameter (even if not present originally)
+                        for pname in param_names:
+                            new_params[pname] = marker
+                        # Also add a generic test param as fallback
+                        new_params['__dominator_test__'] = marker
+                        
+                        new_query = urlencode(new_params, doseq=True)
+                        new_parsed = parsed._replace(query=new_query)
+                        test_url_query = urlunparse(new_parsed)
+                        await page.goto(test_url_query, wait_until='networkidle')
+                        await page.wait_for_timeout(500)
+                    elif inject_search and not param_names:
+                        # Fallback: if no params extracted, still add generic marker
+                        from urllib.parse import urlparse, urlunparse, urlencode
+                        parsed = urlparse(self.url)
+                        new_params = {'__dominator_test__': marker}
+                        new_query = urlencode(new_params)
                         new_parsed = parsed._replace(query=new_query)
                         test_url_query = urlunparse(new_parsed)
                         await page.goto(test_url_query, wait_until='networkidle')
                         await page.wait_for_timeout(500)
                     
-                    # Also test window.name (a common but less used source)
-                    # Only if any source pattern suggests window.name is used
+                    # Test window.name if relevant
                     if any('window.name' in src.lower() for src in self.dom_sources):
                         await page.evaluate(f"window.name = '{marker}'")
                         await page.reload(wait_until='networkidle')
