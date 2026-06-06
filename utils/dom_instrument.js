@@ -34,8 +34,10 @@
             if (search && search.length > 1) decodedSearch = decodeURIComponent(search.substring(1));
         } catch(e) { }
 
+        // Check location.search parameters
         if (search && search.length > 1) {
             const params = new URLSearchParams(search.substring(1));
+            // First: exact matches
             for (let [key, val] of params) {
                 if (value === val) return 'location.search (param value)';
                 try {
@@ -43,8 +45,17 @@
                     if (value === decodedVal) return 'location.search (param value decoded)';
                 } catch(e) {}
             }
+            // Second: substring matches (critical for concatenated strings like HTML)
+            for (let [key, val] of params) {
+                if (val.length > 0 && value.indexOf(val) !== -1) return 'location.search (param value as substring)';
+                try {
+                    const decodedVal = decodeURIComponent(val);
+                    if (decodedVal.length > 0 && value.indexOf(decodedVal) !== -1) return 'location.search (param value decoded as substring)';
+                } catch(e) {}
+            }
         }
         
+        // Check location.hash
         if (hash && hash.length > 1) {
             const rawHash = hash.substring(1);
             if (value === rawHash) return 'location.hash (exact)';
@@ -52,19 +63,21 @@
                 const decodedHashVal = decodeURIComponent(rawHash);
                 if (value === decodedHashVal) return 'location.hash (exact decoded)';
             } catch(e) {}
+            // Substring checks for hash
+            if (rawHash.length > 0 && value.indexOf(rawHash) !== -1) return 'location.hash (raw substring)';
+            try {
+                const decodedHashVal = decodeURIComponent(rawHash);
+                if (decodedHashVal.length > 0 && value.indexOf(decodedHashVal) !== -1) return 'location.hash (decoded substring)';
+            } catch(e) {}
         }
         
-        if (decodedHash.length > 0 && value.indexOf(decodedHash) !== -1) return 'location.hash (substring)';
-        if (decodedSearch.length > 0 && value.indexOf(decodedSearch) !== -1) return 'location.search (substring)';
-        
-        const rawHash = hash && hash.length > 1 ? hash.substring(1) : '';
-        const rawSearch = search && search.length > 1 ? search.substring(1) : '';
-        if (rawHash.length > 0 && value.indexOf(rawHash) !== -1) return 'location.hash (raw substring)';
-        if (rawSearch.length > 0 && value.indexOf(rawSearch) !== -1) return 'location.search (raw substring)';
-        
+        // Check window.name
         if (windowName && windowName.length > 0 && value.indexOf(windowName) !== -1) return 'window.name';
+        
+        // Check referrer
         if (referrer && referrer.length > 0 && value.indexOf(referrer) !== -1) return 'document.referrer';
         
+        // Check current URL
         const currentUrl = document.URL;
         const currentHref = location.href;
         if (currentUrl && currentUrl.length > 0 && value.indexOf(currentUrl) !== -1) return 'document.URL';
