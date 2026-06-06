@@ -668,6 +668,20 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
     Print a human-readable summary of scan results to the console,
     including vulnerabilities, severity, and basic exploit hints.
     """
+
+    # ANSI color codes (if terminal supports)
+    try:
+        import sys
+        if sys.stdout.isatty():
+            GREEN = '\033[92m'
+            RED = '\033[91m'
+            RESET = '\033[0m'
+        else:
+            GREEN = RESET = ''
+    except:
+        GREEN = RESET = ''
+
+
     def get_exploit_hint(occ: dict) -> str:
         pattern = occ.get("pattern", "")
         context = occ.get("context", "")
@@ -720,8 +734,8 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
             emoji = emoji_map.get(severity, "⚪")
             severity_str = f" | Severity: {emoji} {severity}"
 
-        print(f"\n[{idx}] URL: {url}")
-        print(f"    Status: {status}{severity_str} | Time: {elapsed:.2f}s")
+        print(f"\n[{idx}] {GREEN}URL:{RESET} {url}")
+        print(f"    {GREEN}Status:{RESET} {status}{severity_str} | {GREEN}Time:{RESET} {elapsed:.2f}s")
 
         if status == "error":
             print(f"    ❌ Error: {res.get('error_message', 'No details')}")
@@ -773,21 +787,38 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
             if is_false_positive(occ):
                 continue
             pattern = occ.get("pattern", "?")
-            line = occ.get("line", "N/A")
+            line = occ.get("line")
             src = occ.get("source", "dynamic")
             context = occ.get("context", "")
             injected_url = occ.get("injected_url", "")
-            hint = get_exploit_hint(occ).split('.')[0]
-            if not pattern or pattern == "?":
-                logger.warning(f"Skipping dynamic occurrence {idx} due to missing pattern: {occ}")
-                continue
-            print(f"      [{src.upper()}] {pattern} (line {line})")
-            if context:
-                short_ctx = context[:100] + "..." if len(context) > 100 else context
-                print(f"         📝 Context: {short_ctx}")
+            
+            # Extract payload from context
+            payload = ""
+            if "Payload:" in context and "triggered alert" in context:
+                import re
+                match = re.search(r'Payload:\s*(.+?)\s+triggered alert', context)
+                if match:
+                    payload = match.group(1)
+            
+            # Determine injection point from pattern
+            injection = "hash" if "hash" in pattern.lower() else "query" if "query" in pattern.lower() else "URL"
+            
+            print(f"      🔥 {pattern}")
+            if line:
+                print(f"         📍 Line: {line}")
+            if payload:
+                print(f"         💉 Payload: {payload}")
+            if injection:
+                print(f"         🎯 Injection point: {injection}")         
+            # Simple recommendation
+            if payload and '<img' in payload:
+                print(f"         💡 Try: Inject HTML tags with event handlers")
             if injected_url:
-                print(f"         🔗 URL: {injected_url}")
-            print(f"         💡 {hint}")
+                # Show full exploit URL (shorten only if extremely long)
+                display_url = injected_url[:120] + "..." if len(injected_url) > 120 else injected_url
+                print(f"         🔗 {RED}Exploit URL:{RESET} {display_url}")
+            else:
+                print(f"         💡 Test with <img src=x onerror=alert(1)>")
 
         # Static occurrences (unverified, potential false positives)
         # Only show if not already confirmed by dynamic analysis
