@@ -266,7 +266,6 @@ class DynamicAnalyzer:
                     
                     # First, load the original URL to let instrumentation hook sinks.
                     await page.goto(self.url, wait_until='networkidle')
-                    await self._click_buttons_and_check(page)
                     
                     # Determine which sources are present based on dom_sources.
                     inject_hash = any('hash' in src.lower() for src in self.dom_sources)
