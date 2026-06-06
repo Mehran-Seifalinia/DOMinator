@@ -736,9 +736,32 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
             pattern = occ.get("pattern", "")
             return pattern and pattern != "?"
         
+        # Helper to extract sink keyword from pattern
+        def get_sink_from_pattern(pattern: str) -> str:
+            pattern_lower = pattern.lower()
+            sinks = ['innerhtml', 'outerhtml', 'document.write', 'eval', 'settimeout', 
+                     'setinterval', 'location', 'srcdoc', 'innerHTML XSS']
+            for sink in sinks:
+                if sink in pattern_lower:
+                    return sink
+            return ''
+
         filtered_static = [occ for occ in static if has_valid_pattern(occ)]
         filtered_dynamic = [occ for occ in dynamic if has_valid_pattern(occ)]
+
+        # Collect sink keywords from confirmed dynamic occurrences
+        dynamic_sinks = set()
+        for dyn_occ in filtered_dynamic:
+            sink = get_sink_from_pattern(dyn_occ.get('pattern', ''))
+            if sink:
+                dynamic_sinks.add(sink)
+
+        # Remove static occurrences whose sink is already covered by a dynamic one
+        filtered_static = [occ for occ in filtered_static 
+                           if get_sink_from_pattern(occ.get('pattern', '')) not in dynamic_sinks]
+
         total = len(filtered_static) + len(filtered_dynamic) + sum(len(v) for v in event_handlers.values()) + len(external)
+
         if total == 0:
             print("    ✅ No DOM XSS vulnerabilities detected.")
             continue
@@ -767,7 +790,8 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
             print(f"         💡 {hint}")
 
         # Static occurrences (unverified, potential false positives)
-        for idx, occ in enumerate(static):
+        # Only show if not already confirmed by dynamic analysis
+        for idx, occ in enumerate(filtered_static):
             if is_false_positive(occ):
                 continue
             pattern = occ.get("pattern", "?")
