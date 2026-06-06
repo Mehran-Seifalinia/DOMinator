@@ -150,60 +150,6 @@ class DynamicAnalyzer:
             logger.debug(f"Dialog not detected within {timeout}ms: {e}")
             return None
     
-    async def _test_url_with_payload(self, page: Page, base_url: str, payload: str, inject_in: str = 'hash') -> bool:
-        """
-        Test a single payload by injecting it into URL hash or query parameter.
-        
-        Args:
-            page (Page): Playwright page
-            base_url (str): Original URL
-            payload (str): XSS payload
-            inject_in (str): 'hash' or 'query'
-            
-        Returns:
-            bool: True if alert was detected
-        """
-        
-        if inject_in != 'hash':
-            return False
-        
-        logger.debug(f"Testing payload in {inject_in}: {payload}")
-        try:
-            await page.goto(base_url, wait_until='networkidle', timeout=self.timeout * 1000)
-            
-            escaped_payload = dumps(payload)
-            await page.evaluate(f"window.location.hash = {escaped_payload}")
-            
-            # Capture the current URL after setting hash (includes the injected payload)
-            injected_url = page.url
-            
-            async with page.expect_event('dialog', timeout=5000) as dialog_info:
-                await page.reload(wait_until='networkidle', timeout=self.timeout * 1000)
-            
-            dialog = await dialog_info.value
-            await dialog.dismiss()
-            
-            occurrence: Occurrence = {
-                "line": None,
-                "column": None,
-                "pattern": f"innerHTML XSS (confirmed via {inject_in})",
-                "context": f"Payload: {payload} triggered alert: {dialog.message}",
-                "risk_level": "critical",
-                "priority": 95,
-                "source": "dynamic",
-                "injected_url": injected_url
-            }
-            self.result.add_dynamic_occurrence(occurrence)
-            self._dialog_detected_for_payload = True
-            return True
-            
-        except TimeoutError:
-            logger.debug(f"No dialog for payload: {payload}")
-        except Exception as e:
-            logger.debug(f"Error testing payload {payload}: {e}")
-
-        return False
-    
     async def _click_buttons_and_check(self, page: Page) -> None:
         """
         Find all buttons or elements with onclick attribute and click them,
@@ -314,99 +260,68 @@ class DynamicAnalyzer:
                     await page.goto(self.url, wait_until='networkidle')
                     await self._click_buttons_and_check(page)
                     
-                    # Determine which injection points to test based on DOM sources
-                    inject_locations = set()
-                    for src in self.dom_sources:
-                        src_lower = src.lower()
-                        if 'hash' in src_lower:
-                            inject_locations.add('hash')
-                        if 'search' in src_lower or '? ' in src_lower or 'query' in src_lower:
-                            inject_locations.add('query')
-                        if 'href' in src_lower or 'url' in src_lower:
-                            # For href/URL, test both? but to be safe, add both
-                            inject_locations.add('hash')
-                            inject_locations.add('query')
+                    # Instead of brute-force payload testing, we only inject a marker value
+                    # into relevant DOM sources (hash, search, window.name) and rely on
+                    # instrumentation to detect if it reaches a sink.
                     
-                    # If no specific source found, default to testing hash only (more common for DOM XSS)
-                    if not inject_locations:
-                        inject_locations.add('hash')
+                    # First, load the original URL to let instrumentation hook sinks.
+                    await page.goto(self.url, wait_until='networkidle')
+                    await self._click_buttons_and_check(page)
                     
-                    sink_lower_set = {s.lower() for s in self.sink_types}
-
-                    is_html_sink = any(s in sink_lower_set for s in ['innerhtml', 'outerhtml', 'document.write'])
-                    is_eval_sink = any(s in sink_lower_set for s in ['eval', 'settimeout', 'setinterval', 'function'])
-                    is_location_sink = any(s in sink_lower_set for s in ['location', 'href', 'assign', 'replace'])
-                    relevant_payloads = []
-
-                    if self.payloads:
-                        for p in self.payloads:
-                            p_lower = p.lower()
-                            if is_html_sink and ('<img' in p_lower or '<script' in p_lower or 'onerror' in p_lower):
-                                if p not in relevant_payloads:
-                                    relevant_payloads.append(p)
-                                    encoded_p = quote(p, safe='')
-                                    if encoded_p not in relevant_payloads:
-                                        relevant_payloads.append(encoded_p)
-                            elif is_eval_sink and ('alert(' in p_lower or 'confirm(' in p_lower or 'prompt(' in p_lower) and '<' not in p_lower and '>' not in p_lower:
-                                if p not in relevant_payloads:
-                                    relevant_payloads.append(p)
-                            elif is_location_sink and 'javascript:' in p_lower:
-                                if p not in relevant_payloads:
-                                    relevant_payloads.append(p)
-
-                    if is_eval_sink and not any('alert(' in p.lower() for p in relevant_payloads):
-                        relevant_payloads.append('alert(1)')
-                    if is_html_sink and not any('<img' in p.lower() for p in relevant_payloads):
-                        default_payload = '<img src=x onerror=alert(1)>'
-                        relevant_payloads.append(default_payload)
-                        encoded_default = quote(default_payload, safe='')
-                        relevant_payloads.append(encoded_default)
-                    if is_location_sink and not any('javascript:' in p.lower() for p in relevant_payloads):
-                        relevant_payloads.append('javascript:alert(1)')
-                        
-                    relevant_payloads = relevant_payloads[:2]
-
-                    if not relevant_payloads and self.payloads:
-                        relevant_payloads = self.payloads[:2]
+                    # Determine which sources are present based on dom_sources.
+                    inject_hash = any('hash' in src.lower() for src in self.dom_sources)
+                    inject_search = any('search' in src.lower() or 'query' in src.lower() for src in self.dom_sources)
                     
-                    logger.debug(f"Testing {len(relevant_payloads)} payloads for {self.url} in locations: {inject_locations}")
-
-                    # Test each payload only in relevant injection locations
-                    for payload in relevant_payloads:
-                        for loc in inject_locations:
-                            await self._test_url_with_payload(page, self.url, payload, loc)
+                    # Default to both if no sources detected (common DOM XSS patterns)
+                    if not inject_hash and not inject_search:
+                        inject_hash = True
+                        inject_search = True
                     
-                    # Also test the original __DOMINATOR_TEST__ for compatibility (optional) - only if hash is relevant
-                    if 'hash' in inject_locations:
-                        test_url = self.url + '#__DOMINATOR_TEST__'
-                        await page.goto(test_url, wait_until='networkidle')
-                        await self._click_buttons_and_check(page)
+                    marker = '__DOMINATOR_TEST__'
+                    
+                    # Test injection via URL hash if relevant
+                    if inject_hash:
+                        test_url_hash = self.url + '#' + marker
+                        await page.goto(test_url_hash, wait_until='networkidle')
+                        await page.wait_for_timeout(500)
+                    
+                    # Test injection via URL query parameter if relevant
+                    if inject_search:
+                        from urllib.parse import urlparse, urlunparse, quote
+                        parsed = urlparse(self.url)
+                        # Replace or add query parameter
+                        if parsed.query:
+                            new_query = parsed.query + '&__dominator_test__=' + quote(marker)
+                        else:
+                            new_query = '__dominator_test__=' + quote(marker)
+                        new_parsed = parsed._replace(query=new_query)
+                        test_url_query = urlunparse(new_parsed)
+                        await page.goto(test_url_query, wait_until='networkidle')
+                        await page.wait_for_timeout(500)
+                    
+                    # Also test window.name (a common but less used source)
+                    # Only if any source pattern suggests window.name is used
+                    if any('window.name' in src.lower() for src in self.dom_sources):
+                        await page.evaluate(f"window.name = '{marker}'")
+                        await page.reload(wait_until='networkidle')
+                        await page.wait_for_timeout(500)
                 
                 # Case 2: Offline HTML content
                 else:
                     logger.debug("Executing HTML in a real browser environment (offline)...")
                     await page.set_content(self.html_content)
                     await self._click_buttons_and_check(page)
-                    # For offline content, we can also try to inject payloads into the DOM via evaluate
-                    for payload in self.payloads:
-                        try:
-                            async with page.expect_event('dialog', timeout=5000) as dialog_info:
-                                await page.evaluate("(payload) => { document.body.innerHTML += payload; }", payload)
-                                await page.wait_for_timeout(500)
-                            dialog = await dialog_info.value
-                            await dialog.dismiss()
-                            occurrence: Occurrence = {
-                                "line": None,
-                                "column": None,
-                                "pattern": "DOM XSS via innerHTML injection (offline)",
-                                "context": f"Payload: {payload} triggered alert: {dialog.message}",
-                                "risk_level": "high",
-                                "priority": 95,
-                                "source": "dynamic"
-                            }
-                            self.result.add_dynamic_occurrence(occurrence)
-                        except Exception:
-                            pass
+                    
+                    # Simulate DOM sources by setting window.name and a fake location hash
+                    marker = '__DOMINATOR_TEST__'
+                    await page.evaluate(f"window.name = '{marker}'")
+                    
+                    # Set a fake location hash using history.pushState
+                    await page.evaluate(f"""
+                        history.pushState({{}}, '', '#{marker}');
+                        window.dispatchEvent(new HashChangeEvent('hashchange'));
+                    """)
+                    await page.wait_for_timeout(500)
 
                 # Collect instrumentation results if any (optional)
                 await self._instrument_and_collect(page)
