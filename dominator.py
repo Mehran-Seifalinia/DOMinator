@@ -814,9 +814,8 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
             if payload and '<img' in payload:
                 print(f"         💡 Try: Inject HTML tags with event handlers")
             if injected_url:
-                # Show full exploit URL (shorten only if extremely long)
-                display_url = injected_url[:120] + "..." if len(injected_url) > 120 else injected_url
-                print(f"         🔗 {RED}Exploit URL:{RESET} {display_url}")
+                # Show full exploit URL (no truncation)
+                print(f"         🔗 {RED}Exploit URL:{RESET} {injected_url}")
             else:
                 print(f"         💡 Test with <img src=x onerror=alert(1)>")
 
