@@ -286,7 +286,7 @@ async def scan_url_async(
                     external_urls=list(external_urls),
                     headless=headless,
                     user_agent=user_agent,
-                    payloads=get_default_payloads(),
+                    payloads=[],
                     sink_types=sink_patterns,
                     dom_sources=result.dom_sources,
                     timeout=timeout,
