@@ -3,7 +3,7 @@ Dynamic Analyzer Module
 Performs dynamic analysis of HTML content to detect potential DOM XSS vulnerabilities.
 """
 
-from asyncio import gather, run, TimeoutError
+from asyncio import gather, run
 from typing import List, Optional
 from pathlib import Path
 from playwright.async_api import async_playwright, Page
@@ -14,8 +14,7 @@ from utils.logger import get_logger
 from utils.patterns import get_risk_level
 from utils.analysis_result import AnalysisResult, Occurrence
 from utils.browser_setup import ensure_browser_installed, BrowserNotInstalledError
-from urllib.parse import quote
-from json import dumps
+from urllib.parse import quote, urlparse, urlunparse, parse_qs, urlencode
 logger = get_logger(__name__)
 
 INSTRUMENT_SCRIPT_PATH = Path(__file__).parent.parent / 'utils' / 'dom_instrument.js'
@@ -60,6 +59,9 @@ class DynamicAnalyzer:
             dom_sources (Optional[List[str]]): List of DOM sources to guide injection points
             timeout (int): Navigation timeout in seconds
             browser: Optional existing browser instance to reuse
+            level (int): Analysis level (1-3)
+            proxy (Optional[str]): Proxy URL for browser
+            cookies (Optional[str]): Cookies string to set
         """
         if not isinstance(html_content, str) or not html_content.strip():
             raise ValueError("HTML content must be a non-empty string.")
@@ -83,7 +85,6 @@ class DynamicAnalyzer:
         self.level = level
         self.proxy = proxy
         self.cookies = cookies
-        self._dialog_detected_for_payload = False
 
 
     async def analyze_event_handlers(self) -> None:
@@ -120,16 +121,11 @@ class DynamicAnalyzer:
                 source = item.get('source', 'unknown')
                 payload = item.get('payloadSuggestion', '')
                 context = item.get('context', '')
-                
-                if self._dialog_detected_for_payload:
-                    logger.debug("Skipping instrumentation report because dialog was already captured.")
-                    continue
 
                 # Build exploit URL if we have a payload and a current URL
                 exploit_url = None
                 if payload and self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
                     current_url = page.url
-                    from urllib.parse import urlparse, urlunparse, parse_qs, urlencode, quote
                     parsed = urlparse(current_url)
                     
                     # Determine which part (hash or query) contains the marker
@@ -159,16 +155,15 @@ class DynamicAnalyzer:
                         # Example source: 'location.search (param value)' - we need param name
                         # We can parse the current URL and replace all values with payload? 
                         # Simpler: replace all query parameter values with payload
-                        from urllib.parse import parse_qs, urlencode
                         parsed = urlparse(current_url)
                         query_params = parse_qs(parsed.query, keep_blank_values=True)
                         new_params = {}
                         for key in query_params:
                             new_params[key] = payload  # replace every param value with payload
                         new_query = urlencode(new_params, doseq=True)
+                        exploit_url = urlunparse(parsed._replace(query=new_query))
                 # Clean up exploit URL: remove the generic test parameter
                 if exploit_url:
-                    from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
                     parsed_clean = urlparse(exploit_url)
                     query_clean = parse_qs(parsed_clean.query, keep_blank_values=True)
                     # Remove __dominator_test__ if present
@@ -194,15 +189,6 @@ class DynamicAnalyzer:
                 
         except Exception as e:
             logger.error(f"Error during instrumentation collection: {str(e)}")
-
-    async def _check_for_alert(self, page: Page, timeout: int = 2000) -> Optional[str]:
-        try:
-            dialog = await page.wait_for_event('dialog', timeout=timeout)
-            await dialog.dismiss()
-            return dialog.message
-        except Exception as e:
-            logger.debug(f"Dialog not detected within {timeout}ms: {e}")
-            return None
     
     async def _click_buttons_and_check(self, page: Page) -> None:
         """
@@ -215,7 +201,7 @@ class DynamicAnalyzer:
             for elem in elements:
                 try:
                     # Use expect_event to capture dialog after click
-                    async with page.expect_event('dialog', timeout=5000) as dialog_info:
+                    async with page.expect_event('dialog', timeout=self.timeout * 1000) as dialog_info:
                         await elem.click()
                         await page.wait_for_timeout(500)
                     dialog = await dialog_info.value
@@ -234,6 +220,36 @@ class DynamicAnalyzer:
                     logger.debug(f"Error clicking element: {e}")
         except Exception as e:
             logger.error(f"Error in click simulation: {e}")
+
+    async def _extract_param_names(self, page: Page) -> List[str]:
+        """Extract parameter names from page scripts."""
+        try:
+            param_names = await page.evaluate('''
+                () => {
+                    const paramNames = new Set();
+                    const scripts = document.querySelectorAll('script');
+                    scripts.forEach(script => {
+                        const content = script.textContent || script.innerText;
+                        if (content) {
+                            const regex = /\\b(?:URLSearchParams\\.get|params\\.get|new URLSearchParams\\([^)]*\\)\\.get)\\s*\\(\\s*['"]([^'"]+)['"]\\s*\\)/gi;
+                            let match;
+                            while ((match = regex.exec(content)) !== null) {
+                                paramNames.add(match[1]);
+                            }
+                            const paramRegex = /[?&]([^=&#]+)=/g;
+                            let paramMatch;
+                            while ((paramMatch = paramRegex.exec(content)) !== null) {
+                                paramNames.add(paramMatch[1]);
+                            }
+                        }
+                    });
+                    return Array.from(paramNames);
+                }
+            ''')
+            return param_names
+        except Exception as e:
+            logger.debug(f"Error extracting param names: {e}")
+            return []
 
     async def fetch_and_analyze_external_scripts(self) -> None:
         """
@@ -275,9 +291,8 @@ class DynamicAnalyzer:
 
     async def execute_in_browser(self) -> None:
         """Execute HTML in a real browser to detect dynamic vulnerabilities."""
+        p = None
         try:
-            self._dialog_detected_for_payload = False
-            p = None
             if self.browser is None:
                 try:
                     await ensure_browser_installed()
@@ -314,34 +329,9 @@ class DynamicAnalyzer:
                     await page.goto(self.url, wait_until='networkidle')
                     await self._click_buttons_and_check(page)
                     
-                    # ========== NEW: Extract actual parameter names from page scripts ==========
+                    # ========== Extract actual parameter names from page scripts ==========
                     # Extract all parameter names used with URLSearchParams.get() or similar
-                    param_names = await page.evaluate('''
-                        () => {
-                            const paramNames = new Set();
-                            // Get all script contents (inline and external)
-                            const scripts = document.querySelectorAll('script');
-                            scripts.forEach(script => {
-                                const content = script.textContent || script.innerText;
-                                if (content) {
-                                    // Match patterns like params.get('name') or params.get("id")
-                                    const regex = /\\b(?:URLSearchParams\\.get|params\\.get|new URLSearchParams\\([^)]*\\)\\.get)\\s*\\(\\s*['"]([^'"]+)['"]\\s*\\)/gi;
-                                    let match;
-                                    while ((match = regex.exec(content)) !== null) {
-                                        paramNames.add(match[1]);
-                                    }
-                                    // Also match location.search.split etc. but simpler: look for query string parsing
-                                    const paramRegex = /[?&]([^=&#]+)=/g;
-                                    let paramMatch;
-                                    while ((paramMatch = paramRegex.exec(content)) !== null) {
-                                        paramNames.add(paramMatch[1]);
-                                    }
-                                }
-                            });
-                            return Array.from(paramNames);
-                        }
-                    ''')
-                    
+                    param_names = await self._extract_param_names(page)
                     logger.debug(f"Extracted parameter names from page scripts: {param_names}")
                     
                     # Determine which sources are present based on dom_sources (existing logic)
@@ -362,7 +352,6 @@ class DynamicAnalyzer:
                     
                     # Test injection via URL query parameters - ONLY those extracted
                     if inject_search and param_names:
-                        from urllib.parse import urlparse, urlunparse, urlencode, parse_qs
                         parsed = urlparse(self.url)
                         # Build new query: keep existing structure but set extracted params to marker
                         existing_params = parse_qs(parsed.query)
@@ -383,7 +372,6 @@ class DynamicAnalyzer:
                         await page.wait_for_timeout(500)
                     elif inject_search and not param_names:
                         # Fallback: if no params extracted, still add generic marker
-                        from urllib.parse import urlparse, urlunparse, urlencode
                         parsed = urlparse(self.url)
                         new_params = {'__dominator_test__': marker}
                         new_query = urlencode(new_params)
