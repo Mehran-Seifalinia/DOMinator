@@ -34,6 +34,9 @@
             if (search && search.length > 1) decodedSearch = decodeURIComponent(search.substring(1));
         } catch(e) { }
 
+        // Check window.name FIRST (higher priority)
+        if (windowName && windowName.length > 0 && value.indexOf(windowName) !== -1) return 'window.name';
+        
         // Check location.search parameters
         if (search && search.length > 1) {
             const params = new URLSearchParams(search.substring(1));
@@ -55,6 +58,13 @@
             }
         }
         
+        // Check raw query string (no parameter parsing) - for pages that use location.search directly
+        if (search && search.length > 1) {
+            const rawQuery = search.substring(1);
+            if (value === rawQuery) return 'location.search (raw query string)';
+            if (rawQuery.length > 0 && value.indexOf(rawQuery) !== -1) return 'location.search (raw query string substring)';
+        }
+
         // Check location.hash
         if (hash && hash.length > 1) {
             const rawHash = hash.substring(1);
@@ -70,9 +80,6 @@
                 if (decodedHashVal.length > 0 && value.indexOf(decodedHashVal) !== -1) return 'location.hash (decoded substring)';
             } catch(e) {}
         }
-        
-        // Check window.name
-        if (windowName && windowName.length > 0 && value.indexOf(windowName) !== -1) return 'window.name';
         
         // Check referrer
         if (referrer && referrer.length > 0 && value.indexOf(referrer) !== -1) return 'document.referrer';
