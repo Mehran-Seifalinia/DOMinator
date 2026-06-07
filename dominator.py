@@ -14,7 +14,6 @@ from scanners.dynamic_analyzer import DynamicAnalyzer
 from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity, AttackVector
 from utils.logger import get_logger
 from utils.analysis_result import AnalysisResult
-from utils.payloads import get_default_payloads
 from urllib.parse import urlparse
 from argparse import ArgumentParser
 from sys import exit
@@ -837,8 +836,8 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
                 print(f"         📝 Context: {short_ctx}")
             print(f"         💡 {hint} (No alert triggered - may be false positive)")
 
-        for handlers in event_handlers.items():
-            for h in handlers:
+        for handler_list in event_handlers.items():
+            for h in handler_list:
                 tag = h.get("tag", "?")
                 attr = h.get("attribute", "?")
                 code = h.get("handler", "")
