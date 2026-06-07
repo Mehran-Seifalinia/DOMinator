@@ -3,7 +3,7 @@ Browser setup and auto-installation utilities for Playwright.
 Suppresses noisy output during installation attempts and provides clean error messages.
 """
 
-from os import path
+from pathlib import Path
 from sys import executable
 from typing import Optional
 from asyncio import create_subprocess_exec
@@ -12,7 +12,7 @@ from playwright.async_api import async_playwright
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-
+_EXECUTABLE_PATH_CACHE: Optional[str] = None
 
 class BrowserNotInstalledError(Exception):
     """Raised when the browser executable is missing and cannot be installed."""
@@ -24,9 +24,13 @@ async def _get_executable_path() -> Optional[str]:
     Get the expected path to the Chromium executable.
     Returns None if the path cannot be determined.
     """
+    global _EXECUTABLE_PATH_CACHE
+    if _EXECUTABLE_PATH_CACHE is not None:
+        return _EXECUTABLE_PATH_CACHE
     try:
         async with async_playwright() as p:
-            return p.chromium.executable_path
+            _EXECUTABLE_PATH_CACHE = p.chromium.executable_path
+            return _EXECUTABLE_PATH_CACHE
     except Exception:
         return None
 
@@ -42,7 +46,7 @@ async def ensure_browser_installed() -> bool:
         raise BrowserNotInstalledError("Could not determine Playwright browser path.")
 
     # If the executable already exists, nothing to do
-    if path.isfile(executable_path):
+    if Path(executable_path).is_file():
         return True
 
     logger.info("Chromium browser not found. Attempting automatic installation...")
@@ -75,7 +79,7 @@ async def ensure_browser_installed() -> bool:
         )
 
     # Verify again after installation attempt
-    if path.isfile(executable_path):
+    if Path(executable_path).is_file():
         logger.info("Chromium installed successfully.")
         return True
     else:
