@@ -160,20 +160,18 @@ class DynamicAnalyzer:
                         if param_name and param_name != '__dominator_test__':
                             # Build query string manually without encoding
                             query_parts = []
-                            # Add the injected parameter with raw payload
                             query_parts.append(f"{param_name}={payload}")
-                            # Add other existing parameters without encoding
                             clean_params = parse_qs(parsed.query, keep_blank_values=True)
+                            # Remove test marker and also the target parameter to avoid duplication
                             if '__dominator_test__' in clean_params:
                                 del clean_params['__dominator_test__']
+                            if param_name in clean_params:
+                                del clean_params[param_name]
                             for k, v in clean_params.items():
-                                # For multiple values, take first (simplified)
                                 val = v[0] if isinstance(v, list) else v
                                 query_parts.append(f"{k}={val}")
                             new_query = '&'.join(query_parts)
                             exploit_url = urlunparse(parsed._replace(query=new_query))
-                        else:
-                            exploit_url = urlunparse(parsed._replace(query=payload))
                     
                     # Priority 4: fallback for any other source (e.g., document.referrer)
                     elif not exploit_url and 'param value' in source:
@@ -221,7 +219,19 @@ class DynamicAnalyzer:
                             # Try to inject real payload into the parameter position
                             parsed = urlparse(current_url)
                             if param_name:
-                                verify_url = urlunparse(parsed._replace(query=f"{param_name}={real_payload}"))
+                                # Remove existing param_name from query to avoid duplication
+                                clean_params = parse_qs(parsed.query, keep_blank_values=True)
+                                if param_name in clean_params:
+                                    del clean_params[param_name]
+                                if '__dominator_test__' in clean_params:
+                                    del clean_params['__dominator_test__']
+                                # Rebuild query with new param first, then others
+                                query_parts = [f"{param_name}={real_payload}"]
+                                for k, v in clean_params.items():
+                                    val = v[0] if isinstance(v, list) else v
+                                    query_parts.append(f"{k}={val}")
+                                new_query = '&'.join(query_parts)
+                                verify_url = urlunparse(parsed._replace(query=new_query))
                             else:
                                 verify_url = urlunparse(parsed._replace(query=f"__dominator_test__={real_payload}"))
                     
