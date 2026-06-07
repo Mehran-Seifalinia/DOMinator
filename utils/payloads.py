@@ -135,16 +135,19 @@ class Payloads:
     def remove_all_by_string(self, payload: str) -> int:
         """Remove all payloads with the given string (any type/encoding)."""
         with self.lock:
-            to_remove = [p for p in self.payload_list if p.payload == payload]
-            if not to_remove:
-                self.logger.warning(f"No payload with string '{payload}' found")
-                return 0
+            new_list = []
             count = 0
-            for p in to_remove:
-                self.payload_list.remove(p)
-                self.payload_set.discard(p)
-                count += 1
-            self.logger.info(f"Removed {count} payload(s) with string: {payload}")
+            for p in self.payload_list:
+                if p.payload == payload:
+                    self.payload_set.discard(p)
+                    count += 1
+                else:
+                    new_list.append(p)
+            if count == 0:
+                self.logger.warning(f"No payload with string '{payload}' found")
+            else:
+                self.payload_list = new_list
+                self.logger.info(f"Removed {count} payload(s) with string: {payload}")
             return count
         
     def clear(self) -> None:
@@ -189,7 +192,7 @@ class Payloads:
                     ]
                     dump(data, file, indent=4)
                 self.logger.info(f"Payloads saved to {file_path}")
-            except (OSError, IOError) as e:
+            except (OSError, IOError, TypeError) as e:
                 self.logger.error(f"Error saving payloads to file {file_path}: {e}")
 
     def load_from_file(self, file_path: str) -> None:
@@ -217,7 +220,7 @@ class Payloads:
                                 self.payload_list.append(payload)
                                 self.payload_set.add(payload)
                             else:
-                                self.logger.info(f"Duplicate payload skipped: {payload.payload}")
+                                self.logger.debug(f"Duplicate payload skipped: {payload.payload}")
                         except ValueError:
                             self.logger.error(f"Invalid payload type or encoding in file: {p}")
                             continue
