@@ -3,11 +3,11 @@ Logger Module
 Provides logging functionality for the DOM XSS scanner.
 """
 
-from logging import getLogger, Formatter, StreamHandler, INFO, DEBUG, Logger
+from logging import getLogger, Formatter, StreamHandler, INFO, DEBUG, WARNING, ERROR, CRITICAL, Logger
 from logging.handlers import RotatingFileHandler
 from os import makedirs, path, getenv
 from sys import stderr
-from typing import Optional
+from typing import Optional, Tuple
 
 # Configuration
 LOG_DIR: str = "logs"
@@ -21,13 +21,13 @@ BACKUP_COUNT: int = 5
 VALID_LOG_LEVELS: dict = {
     "DEBUG": DEBUG,
     "INFO": INFO,
-    "WARNING": 30,
-    "ERROR": 40,
-    "CRITICAL": 50
+    "WARNING": WARNING,
+    "ERROR": ERROR,
+    "CRITICAL": CRITICAL
 }
 LOG_LEVEL: int = VALID_LOG_LEVELS.get(getenv("LOG_LEVEL", "DEBUG").upper(), DEBUG)
 
-def setup_handlers() -> tuple:
+def setup_handlers() -> Tuple[StreamHandler, Optional[RotatingFileHandler]]:
     """
     Set up logging handlers.
     
@@ -62,28 +62,28 @@ def setup_handlers() -> tuple:
 # Initialize logging infrastructure
 _console_handler, _file_handler = setup_handlers()
 
+# Configure root logger with handlers (once)
+_root_logger = getLogger()
+_root_logger.setLevel(LOG_LEVEL)
+_root_logger.addHandler(_console_handler)
+if _file_handler:
+    _root_logger.addHandler(_file_handler)
+
 def get_logger(name: Optional[str] = None) -> Logger:
     """
     Get a configured logger instance.
     
     Args:
-        name (Optional[str]): Name of the logger. If None, uses 'global'
+        name (Optional[str]): Name of the logger. If None, returns root logger.
         
     Returns:
         Logger: Configured logger instance
         
     Note:
-        This function ensures that handlers are only added once to each logger.
+        Handlers are attached to the root logger only. Child loggers propagate to root.
     """
-    logger_name = name if name else "global"
-    logger = getLogger(logger_name)
+    logger = getLogger(name)
     logger.setLevel(LOG_LEVEL)
-
-    if not logger.handlers:
-        logger.addHandler(_console_handler)
-        if _file_handler:
-            logger.addHandler(_file_handler)
-
     return logger
 
 def set_console_level(level: int) -> None:
