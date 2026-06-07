@@ -273,22 +273,40 @@ class AnalysisResult:
         )
 
     def get_high_risk_occurrences(self) -> List[Occurrence]:
-        return [
-            occ for occ in self.get_all_occurrences()
-            if occ['risk_level'].lower() in {'high', 'critical'}
-        ]
+        """
+        Get all occurrences with 'high' or 'critical' risk level.
+
+        Returns:
+            List[Occurrence]: List of high-risk occurrences.
+        """
+        high_risk = {'high', 'critical'}
+        result = []
+        for occ in self.static_occurrences:
+            if occ['risk_level'].lower() in high_risk:
+                result.append(occ)
+        for occ in self.dynamic_occurrences:
+            if occ['risk_level'].lower() in high_risk:
+                result.append(occ)
+        for occ in self.external_script_risks:
+            if occ['risk_level'].lower() in high_risk:
+                result.append(occ)
+        return result        
 
     def get_occurrences_by_source(self, source: str) -> List[Occurrence]:
         """
         Get all occurrences from a specific source.
-        
+
         Args:
             source (str): Source to filter by ('static', 'dynamic', or 'external')
-            
+
         Returns:
             List[Occurrence]: List of occurrences from the specified source
         """
-        return [
-            occ for occ in self.get_all_occurrences()
-            if occ['source'] == source
-        ]
+        if source == 'static':
+            return list(self.static_occurrences)
+        elif source == 'dynamic':
+            return list(self.dynamic_occurrences)
+        elif source == 'external':
+            return list(self.external_script_risks)
+        else:
+            return []
