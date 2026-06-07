@@ -4,7 +4,7 @@ Fetches and analyzes external JavaScript files for potential DOM XSS vulnerabili
 """
 
 from asyncio import Lock, Semaphore, gather, run, TimeoutError
-from typing import List, Optional, Dict, Any
+from typing import Any
 from aiohttp import ClientSession, ClientTimeout, ClientError
 from re import findall, compile
 from urllib.parse import urlparse
@@ -38,7 +38,7 @@ class ScriptAnalysisResult:
     sources, and sinks found in a JavaScript file.
     """
     
-    def __init__(self, url: str, event_listeners: List[str], inline_events: List[str], risky_functions: List[str], sources: List[str], sinks: List[str]) -> None:
+    def __init__(self, url: str, event_listeners: list[str], inline_events: list[str], risky_functions: list[str], sources: list[str], sinks: list[str]) -> None:
         """
         Initialize ScriptAnalysisResult with analysis data.
         
@@ -57,7 +57,7 @@ class ScriptAnalysisResult:
         self.sources = sources
         self.sinks = sinks
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert the analysis result to a dictionary.
         
@@ -91,7 +91,7 @@ class ExternalFetcher:
     A class for fetching and analyzing external JavaScript files.
     """
     
-    def __init__(self, urls: List[str], proxy: Optional[str] = None, timeout: int = 10, max_concurrent_requests: int = 5) -> None:
+    def __init__(self, urls: list[str], proxy: str | None = None, timeout: int = 10, max_concurrent_requests: int = 5) -> None:
         """
         Initialize ExternalFetcher with configuration parameters.
         
@@ -104,14 +104,14 @@ class ExternalFetcher:
         Raises:
             ValueError: If invalid URLs or proxy are provided
         """
-        self.urls: List[str] = self._validate_urls(list(set(urls)))  # Remove duplicates and validate
-        self.proxy: Optional[str] = self._validate_proxy(proxy)
+        self.urls: list[str] = self._validate_urls(list(set(urls)))  # Remove duplicates and validate
+        self.proxy: str | None = self._validate_proxy(proxy)
         self.timeout: int = timeout
         self.semaphore = Semaphore(max_concurrent_requests)
-        self.analysis_results: Dict[str, ScriptAnalysisResult] = {}  # URL -> Result mapping
+        self.analysis_results: dict[str, ScriptAnalysisResult] = {}  # URL -> Result mapping
         self._lock = Lock()  # For thread-safe result updates
 
-    def _validate_urls(self, urls: List[str]) -> List[str]:
+    def _validate_urls(self, urls: list[str]) -> list[str]:
         """Validate and filter valid URLs."""
         valid_urls = []
         for url in urls:
@@ -127,7 +127,7 @@ class ExternalFetcher:
             raise ValueError("No valid URLs provided.")
         return valid_urls
 
-    def _validate_proxy(self, proxy: Optional[str]) -> Optional[str]:
+    def _validate_proxy(self, proxy: str | None) -> str | None:
         """Validate proxy format."""
         if proxy:
             try:
@@ -142,7 +142,7 @@ class ExternalFetcher:
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10),
            retry=retry_if_exception_type((ClientError, TimeoutError)))
-    async def fetch_script(self, session: ClientSession, url: str) -> Optional[str]:
+    async def fetch_script(self, session: ClientSession, url: str) -> str | None:
         """
         Fetch a script from a URL with retry mechanism.
         
@@ -163,7 +163,7 @@ class ExternalFetcher:
                     headers=headers
                 ) as response:
                     content_type = response.content_type or ''
-                    if response.status == 200 and 'javascript' in content_type.lower():
+                    if response.status == 200 and content_type.lower() in ('text/javascript', 'application/javascript', 'application/x-javascript'):
                         content_chunk = await response.content.read(MAX_CONTENT_SIZE + 1)
                         if len(content_chunk) > MAX_CONTENT_SIZE:
                             logger.warning(f"Content too large for {url}, skipping analysis.")
@@ -176,7 +176,7 @@ class ExternalFetcher:
                 raise  # For retry
             return None
 
-    async def analyze_script(self, content: str, url: str) -> Optional[ScriptAnalysisResult]:
+    async def analyze_script(self, content: str, url: str) -> ScriptAnalysisResult | None:
         """
         Analyze a script for potential vulnerabilities.
         
@@ -191,7 +191,7 @@ class ExternalFetcher:
         """
         try:
             if ".min.js" in url:
-                logger.warning(f"Skipping minified script: {url}")
+                logger.debug(f"Skipping minified script: {url}")
                 return None
 
             # Find all matches using compiled patterns
@@ -222,7 +222,7 @@ class ExternalFetcher:
             logger.error(f"Error analyzing script from {url}: {str(e)}")
             return None
 
-    async def fetch_and_process_scripts(self) -> List[ScriptAnalysisResult]:
+    async def fetch_and_process_scripts(self) -> list[ScriptAnalysisResult]:
         """
         Fetch and process all scripts in parallel.
         
@@ -254,11 +254,11 @@ class ExternalFetcher:
             logger.error(f"Error in fetch_and_process_scripts: {str(e)}")
             return list(self.analysis_results.values())  # Return any results we have
 
-    def get_analysis_results(self) -> List[ScriptAnalysisResult]:
+    def get_analysis_results(self) -> list[ScriptAnalysisResult]:
         """Get all analysis results."""
         return list(self.analysis_results.values())
 
-    def get_result_for_url(self, url: str) -> Optional[ScriptAnalysisResult]:
+    def get_result_for_url(self, url: str) -> ScriptAnalysisResult | None:
         """
         Get analysis result for a specific URL.
         
