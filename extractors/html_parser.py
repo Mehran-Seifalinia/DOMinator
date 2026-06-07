@@ -54,16 +54,9 @@ class ScriptExtractor:
                         continue
                     seen.add(content)
                     
-                    line_no = getattr(script, 'sourceline', None)
-                    if line_no is None:
-                        # fallback: find the exact script tag string
-                        script_str = str(script)
-                        pos = self.html.find(script_str)
-                        if pos != -1:
-                            line_no = self.html.count('\n', 0, pos) + 1
-                        else:
-                            line_no = 0
-                    scripts.append((line_no if line_no else 0, content))
+                    # sourceline is reliably provided by html5lib parser
+                    line_no = getattr(script, 'sourceline', 0) or 0
+                    scripts.append((line_no, content))
             
             return scripts
         except Exception as e:
@@ -86,7 +79,7 @@ class ScriptExtractor:
         try:
             dangerous_elements = []
             for tag in self.soup.find_all(True):  # Consider limiting to common vulnerable tags for performance
-                line = tag.sourceline if hasattr(tag, 'sourceline') else None
+                line = getattr(tag, 'sourceline', None)
                 for attr, value in tag.attrs.items():
                     if not isinstance(value, str):
                         continue
