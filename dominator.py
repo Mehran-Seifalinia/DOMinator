@@ -14,7 +14,6 @@ from scanners.dynamic_analyzer import DynamicAnalyzer
 from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity, AttackVector
 from utils.logger import get_logger
 from utils.analysis_result import AnalysisResult
-from urllib.parse import urlparse
 from argparse import ArgumentParser
 from sys import exit
 from csv import DictWriter
@@ -22,7 +21,7 @@ from collections import deque
 from typing import List, Dict, Any, Optional, Set, Tuple
 from pathlib import Path
 from datetime import datetime
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, urlunparse
 from html import escape  # For sanitizing in reports
 
 # Set up logger
@@ -30,6 +29,11 @@ logger = get_logger(__name__)
 
 # Maximum allowed HTML size in bytes to prevent memory issues
 MAX_HTML_SIZE = 10 * 1024 * 1024  # 10 MB
+
+def normalize_url(url: str) -> str:
+    """Remove fragment (hash) from URL for deduplication."""
+    parsed = urlparse(url)
+    return urlunparse(parsed._replace(fragment=''))
 
 def parse_args() -> ArgumentParser:
     """
@@ -160,11 +164,14 @@ async def crawl_links(html_content: str, base_url: str, max_depth: int, visited:
                 href = link.get("href")
                 if href:
                     full_url = urljoin(current_url, href)
-                    if full_url in visited:
+                    # Normalize URL by removing fragment for deduplication
+                    normalized = normalize_url(full_url)
+                    if normalized in visited:
                         continue
                     child_html = await fetch_html(full_url, session, timeout, headers)
                     if child_html is not None and len(child_html) > 0:
-                        visited.add(full_url)
+                        visited.add(normalized)
+                        # Use full_url for analysis (keeps original, but we will normalize again later)
                         all_pages.append((full_url, child_html))
                         queue.append((full_url, child_html, current_depth + 1))
         except Exception as e:
@@ -242,8 +249,8 @@ async def scan_url_async(
             return
         
         # ========== CRAWLING AND PER-PAGE ANALYSIS ==========
-        visited = set([url])
-        pages_to_scan = [(url, html_content)]  # list of (page_url, page_html)
+        visited = set([normalize_url(url)])
+        pages_to_scan = [(url, html_content)]
 
         if max_depth > 1:
             crawled_pages = await crawl_links(html_content, url, max_depth, visited, session, timeout, headers)
