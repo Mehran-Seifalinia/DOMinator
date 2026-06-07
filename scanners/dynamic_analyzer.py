@@ -158,11 +158,9 @@ class DynamicAnalyzer:
                     elif 'location.search' in source:
                         # Check if we have a real parameter name (not our test marker)
                         if param_name and param_name != '__dominator_test__':
-                            # Build query string manually without encoding
-                            query_parts = []
-                            query_parts.append(f"{param_name}={payload}")
+                            # Parameter-based injection
+                            query_parts = [f"{param_name}={payload}"]
                             clean_params = parse_qs(parsed.query, keep_blank_values=True)
-                            # Remove test marker and also the target parameter to avoid duplication
                             if '__dominator_test__' in clean_params:
                                 del clean_params['__dominator_test__']
                             if param_name in clean_params:
@@ -172,24 +170,14 @@ class DynamicAnalyzer:
                                 query_parts.append(f"{k}={val}")
                             new_query = '&'.join(query_parts)
                             exploit_url = urlunparse(parsed._replace(query=new_query))
-                    
-                    # Priority 4: fallback for any other source (e.g., document.referrer)
-                    elif not exploit_url and 'param value' in source:
-                        parsed = urlparse(current_url)
-                        query_params = parse_qs(parsed.query, keep_blank_values=True)
-                        new_params = {}
-                        for key in query_params:
-                            new_params[key] = payload
-                        new_query = urlencode(new_params, doseq=True)
-                        exploit_url = urlunparse(parsed._replace(query=new_query))
+                        else:
+                            # Raw query string injection (no parameter name)
+                            exploit_url = urlunparse(parsed._replace(query=payload))
 
-                    # Special handling for window.name: always use data URI and override
-                    if 'window.name' in source:
-                        base = current_url.split('?')[0].split('#')[0]
-                        exploit_url = f"data:text/html,<script>window.name='{payload}';location.href='{base}';</script>"
-                    elif '#' in current_url and '__DOMINATOR_TEST__' in current_url.split('#')[-1]:
-                        new_fragment = current_url.split('#')[-1].replace('__DOMINATOR_TEST__', quote(payload, safe='()'))
-                        exploit_url = current_url.split('#')[0] + '#' + new_fragment
+                    # Fallback for any other source that didn't get an exploit_url
+                    if not exploit_url and payload:
+                        parsed = urlparse(current_url)
+                        exploit_url = urlunparse(parsed._replace(query=payload))
 
                 occurrence: Occurrence = {
                     "line": None,
