@@ -39,18 +39,18 @@
             const params = new URLSearchParams(search.substring(1));
             // First: exact matches
             for (let [key, val] of params) {
-                if (value === val) return 'location.search (param value)';
+                if (value === val) return `location.search (param name: ${key}, exact match)`;
                 try {
                     const decodedVal = decodeURIComponent(val);
-                    if (value === decodedVal) return 'location.search (param value decoded)';
+                    if (value === decodedVal) return `location.search (param name: ${key}, exact match decoded)`;
                 } catch(e) {}
             }
-            // Second: substring matches (critical for concatenated strings like HTML)
+            // Second: substring matches
             for (let [key, val] of params) {
-                if (val.length > 0 && value.indexOf(val) !== -1) return 'location.search (param value as substring)';
+                if (val.length > 0 && value.indexOf(val) !== -1) return `location.search (param name: ${key}, substring)`;
                 try {
                     const decodedVal = decodeURIComponent(val);
-                    if (decodedVal.length > 0 && value.indexOf(decodedVal) !== -1) return 'location.search (param value decoded as substring)';
+                    if (decodedVal.length > 0 && value.indexOf(decodedVal) !== -1) return `location.search (param name: ${key}, substring decoded)`;
                 } catch(e) {}
             }
         }
