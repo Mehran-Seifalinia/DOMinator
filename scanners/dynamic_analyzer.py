@@ -128,29 +128,60 @@ class DynamicAnalyzer:
                     current_url = page.url
                     parsed = urlparse(current_url)
                     
-                    # Determine which part (hash or query) contains the marker
-                    # We need to replace the marker value with the actual payload
                     param_name = None
                     if 'param name:' in source:
                         try:
                             param_name = source.split('param name:')[1].split(',')[0].strip()
                         except:
                             pass
-
-                    if '#' in current_url and '__DOMINATOR_TEST__' in current_url.split('#')[-1]:
-                        new_fragment = current_url.split('#')[-1].replace('__DOMINATOR_TEST__', quote(payload, safe=''))
-                        exploit_url = current_url.split('#')[0] + '#' + new_fragment
-                    elif '?' in current_url:
+                    
+                    # Priority 1: window.name
+                    if 'window.name' in source:
+                        base = current_url.split('?')[0].split('#')[0]
+                        # Build a data: URI that sets window.name and redirects
+                        # Properly escape the payload for JavaScript string
+                        safe_payload = payload.replace("'", "\\'").replace('"', '\\"')
+                        data_html = f"<script>window.name='{safe_payload}';location.href='{base}';</script>"
+                        encoded_data = quote(data_html, safe='')
+                        exploit_url = f"data:text/html,{encoded_data}"
+                   
+                    # Priority 2: location.hash
+                    elif 'location.hash' in source:
+                        if '#' in current_url and '__DOMINATOR_TEST__' in current_url.split('#')[-1]:
+                            new_fragment = current_url.split('#')[-1].replace('__DOMINATOR_TEST__', quote(payload, safe='()'))
+                            exploit_url = current_url.split('#')[0] + '#' + new_fragment
+                        else:
+                            exploit_url = current_url.split('#')[0] + '#' + quote(payload, safe='()')
+                    
+                    # Priority 3: location.search
+                    elif 'location.search' in source:
+                        # Check if we have a real parameter name (not our test marker)
+                        if param_name and param_name != '__dominator_test__':
+                            # Parameter-based injection
+                            encoded_payload = quote(payload, safe='()')
+                            new_params = {param_name: encoded_payload}
+                            clean_params = parse_qs(parsed.query, keep_blank_values=True)
+                            if '__dominator_test__' in clean_params:
+                                del clean_params['__dominator_test__']
+                            for k, v in clean_params.items():
+                                if k not in new_params:
+                                    new_params[k] = v if len(v) > 1 else v[0]
+                            new_query = urlencode(new_params, doseq=True)
+                            exploit_url = urlunparse(parsed._replace(query=new_query))
+                        else:
+                            # Raw query string injection (no parameter name)
+                            # For display: use raw payload (user will copy-paste)
+                            # For verification: we will use encoded version later
+                            raw_payload = payload
+                            exploit_url = urlunparse(parsed._replace(query=raw_payload))
+                    
+                    # Priority 4: fallback for any other source (e.g., document.referrer)
+                    elif not exploit_url and 'param value' in source:
+                        parsed = urlparse(current_url)
                         query_params = parse_qs(parsed.query, keep_blank_values=True)
                         new_params = {}
-                        for key, values in query_params.items():
-                            new_values = []
-                            for val in values:
-                                if val == '__DOMINATOR_TEST__':
-                                    new_values.append(payload)
-                                else:
-                                    new_values.append(val)
-                            new_params[key] = new_values if len(new_values) > 1 else new_values[0]
+                        for key in query_params:
+                            new_params[key] = payload
                         new_query = urlencode(new_params, doseq=True)
                         exploit_url = urlunparse(parsed._replace(query=new_query))
 
@@ -160,7 +191,8 @@ class DynamicAnalyzer:
                         if '__dominator_test__' in clean_params:
                             del clean_params['__dominator_test__']
                         if param_name:
-                            new_params = {param_name: payload}
+                            encoded_payload = quote(payload, safe='()')
+                            new_params = {param_name: encoded_payload}
                         else:
                             new_params = {'__dominator_test__': payload}
                         for k, v in clean_params.items():
@@ -169,10 +201,14 @@ class DynamicAnalyzer:
                         new_query = urlencode(new_params, doseq=True)
                         exploit_url = urlunparse(parsed._replace(query=new_query))
 
-                    if not exploit_url and 'window.name' in source:
+                    # Special handling for window.name: always use data URI and override
+                    if 'window.name' in source:
                         base = current_url.split('?')[0].split('#')[0]
                         exploit_url = f"data:text/html,<script>window.name='{payload}';location.href='{base}';</script>"
-                    
+                    elif '#' in current_url and '__DOMINATOR_TEST__' in current_url.split('#')[-1]:
+                        new_fragment = current_url.split('#')[-1].replace('__DOMINATOR_TEST__', quote(payload, safe='()'))
+                        exploit_url = current_url.split('#')[0] + '#' + new_fragment
+
                     # If no marker found but source indicates a specific parameter name (e.g., 'name')
                     # we can try to extract that parameter name from the source string
                     if not exploit_url and 'param value' in source:
@@ -186,16 +222,6 @@ class DynamicAnalyzer:
                             new_params[key] = payload  # replace every param value with payload
                         new_query = urlencode(new_params, doseq=True)
                         exploit_url = urlunparse(parsed._replace(query=new_query))
-                # Clean up exploit URL: remove the generic test parameter
-                if exploit_url:
-                    parsed_clean = urlparse(exploit_url)
-                    query_clean = parse_qs(parsed_clean.query, keep_blank_values=True)
-                    # Remove __dominator_test__ if present
-                    if '__dominator_test__' in query_clean:
-                        del query_clean['__dominator_test__']
-                    # If after removal there are no query params, keep empty string
-                    new_query = urlencode(query_clean, doseq=True) if query_clean else ''
-                    exploit_url = urlunparse(parsed_clean._replace(query=new_query))
 
                 occurrence: Occurrence = {
                     "line": None,
@@ -417,36 +443,32 @@ class DynamicAnalyzer:
                     if inject_hash:
                         test_url_hash = self.url + '#' + marker
                         await page.goto(test_url_hash, wait_until='networkidle')
+                        await page.reload()  # Ensure page scripts re-run
                         await page.wait_for_timeout(500)
-                    
+
                     # Test injection via URL query parameters - ONLY those extracted
                     if inject_search and param_names:
                         parsed = urlparse(self.url)
-                        # Build new query: keep existing structure but set extracted params to marker
                         existing_params = parse_qs(parsed.query)
                         new_params = {}
-                        # Preserve all existing parameters (their values overridden)
                         for key in existing_params:
                             new_params[key] = marker
-                        # Add each extracted parameter (even if not present originally)
                         for pname in param_names:
                             new_params[pname] = marker
-                        # Also add a generic test param as fallback
                         new_params['__dominator_test__'] = marker
-                        
                         new_query = urlencode(new_params, doseq=True)
                         new_parsed = parsed._replace(query=new_query)
                         test_url_query = urlunparse(new_parsed)
                         await page.goto(test_url_query, wait_until='networkidle')
+                        await page.reload()
                         await page.wait_for_timeout(500)
                     elif inject_search and not param_names:
-                        # Fallback: if no params extracted, still add generic marker
                         parsed = urlparse(self.url)
-                        new_params = {'__dominator_test__': marker}
-                        new_query = urlencode(new_params)
+                        new_query = marker
                         new_parsed = parsed._replace(query=new_query)
                         test_url_query = urlunparse(new_parsed)
                         await page.goto(test_url_query, wait_until='networkidle')
+                        await page.reload()
                         await page.wait_for_timeout(500)
                     
                     # Test window.name if relevant
