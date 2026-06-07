@@ -286,7 +286,7 @@ class PriorityManager:
                 handler_lower = handler.lower()
                 if any(ev in handler_lower for ev in ["onclick","onload", "onerror","onmouseover", "onfocus", "onchange", "onsubmit"]):
                     methods_set.add(RiskLevel.EVAL)
-            score = self.calculate_method_score(methods_set)
+            score = self.calculate_method_score(list(methods_set))
             self.logger.debug("Processed event handlers with score: %.2f", score)
             return score
         except ValueError as e:
