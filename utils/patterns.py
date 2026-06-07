@@ -3,11 +3,10 @@ Patterns Module
 Defines patterns and risk levels for DOM XSS vulnerability detection.
 """
 
-from re import compile
-from typing import List, Pattern, Set, Dict
+from re import compile, Pattern
 
 # JavaScript dangerous patterns
-DANGEROUS_JS_PATTERNS: List[Pattern] = [
+DANGEROUS_JS_PATTERNS: list[Pattern] = [
     compile(r"(?i)\beval\s*\("),
     compile(r"(?i)\bFunction\s*\("),
     compile(r"(?i)window\s*\[\s*['\"]eval['\"]\s*\]"),
@@ -25,13 +24,13 @@ DANGEROUS_JS_PATTERNS: List[Pattern] = [
 ]
 
 # HTML dangerous patterns
-DANGEROUS_HTML_PATTERNS: List[Pattern] = [
+DANGEROUS_HTML_PATTERNS: list[Pattern] = [
     compile(r"(?i)javascript\s*:"),
     compile(r"(?i)data\s*:\s*text\s*/\s*html"),
 ]
 
 # DOM source patterns (where attacker-controlled data can enter)
-DOM_SOURCES_PATTERNS: List[Pattern] = [
+DOM_SOURCES_PATTERNS: list[Pattern] = [
     compile(r"location\.hash"),
     compile(r"location\.search"),
     compile(r"location\.href"),
@@ -47,7 +46,7 @@ DOM_SOURCES_PATTERNS: List[Pattern] = [
 ]
 
 # Event handler attributes
-EVENT_HANDLER_ATTRIBUTES: Set[str] = {
+EVENT_HANDLER_ATTRIBUTES: set[str] = {
     # Window Events
     'onload', 'onerror', 'onbeforeunload', 'onunload',
     'onpageshow', 'onpagehide', 'onresize', 'onscroll',
@@ -99,45 +98,29 @@ EVENT_HANDLER_ATTRIBUTES: Set[str] = {
     'onpushsubscriptionchange', 'onbeforeinstallprompt'
 }
 
-# Risk levels for different patterns
-RISK_LEVELS: Dict[str, str] = {
-    'eval': 'critical',
-    'Function': 'high',
-    'onclick': 'medium',
-    'document.write': 'critical',
-    'setTimeout': 'medium',
-    'setInterval': 'medium',
-    'fetch': 'medium',
-    'XMLHttpRequest': 'medium',
-    'localStorage': 'low',
-    'sessionStorage': 'low',
-    'window.location': 'high',
-    'innerHTML': 'critical',
-    'outerHTML': 'critical',
-}
+# Precompiled patterns with risk levels for efficient detection
+RISK_PATTERNS: list[tuple[Pattern, str]] = [
+    (compile(r"(?i)\beval\s*\("), 'critical'),
+    (compile(r"(?i)\.innerHTML\s*="), 'critical'),
+    (compile(r"(?i)document\.write\s*\("), 'critical'),
+    (compile(r"(?i)\.outerHTML\s*="), 'critical'),
+    (compile(r"(?i)\bFunction\s*\("), 'high'),
+    (compile(r"(?i)window\.location\s*="), 'high'),
+    (compile(r"(?i)setTimeout\s*\("), 'medium'),
+    (compile(r"(?i)setInterval\s*\("), 'medium'),
+    (compile(r"(?i)fetch\s*\("), 'medium'),
+    (compile(r"(?i)new\s+XMLHttpRequest\s*\("), 'medium'),
+    (compile(r"(?i)localStorage\s*(?:\.|\(|=)"), 'low'),
+    (compile(r"(?i)sessionStorage\s*(?:\.|\(|=)"), 'low'),
+    (compile(r"(?i)onclick\s*="), 'medium'),
+]
 
 def get_risk_level(pattern: str, _complexity: int = 1) -> str:
-    import re
+    """Return risk level based on compiled patterns. _complexity is ignored."""
     try:
-        risk_map = {
-            r'\beval\s*\(': 'critical',
-            r'\.innerHTML\s*=': 'critical',
-            r'document\.write\s*\(': 'critical',
-            r'\.outerHTML\s*=': 'critical',
-            r'\bFunction\s*\(': 'high',
-            r'setTimeout\s*\(': 'medium',
-            r'setInterval\s*\(': 'medium',
-            r'window\.location\s*=': 'high',
-            r'localStorage': 'low',
-            r'sessionStorage': 'low',
-        }
-        for regex, level in risk_map.items():
-            if re.search(regex, pattern, re.IGNORECASE):
-                return level
-        pattern_lower = pattern.lower()
-        for key in RISK_LEVELS:
-            if key.lower() in pattern_lower:
-                return RISK_LEVELS[key]
+        for pat, risk in RISK_PATTERNS:
+            if pat.search(pattern):
+                return risk
         return 'unknown'
     except Exception:
         return 'unknown'
