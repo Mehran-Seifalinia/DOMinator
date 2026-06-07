@@ -2,6 +2,7 @@
 Static Analyzer Module
 Performs static analysis of HTML content to detect potential DOM XSS vulnerabilities.
 """
+from re import compile
 from typing import List
 from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity
 from extractors.html_parser import ScriptExtractor
@@ -14,6 +15,7 @@ logger = get_logger(__name__)
 # Maximum allowed HTML size in bytes to prevent memory issues
 MAX_HTML_SIZE = 10 * 1024 * 1024  # 10 MB
 
+
 class StaticAnalyzer:
     """
     A class for performing static analysis of HTML content to detect potential DOM XSS vulnerabilities.
@@ -21,6 +23,16 @@ class StaticAnalyzer:
     This class analyzes HTML content for dangerous patterns in both inline scripts
     and HTML elements that could lead to DOM XSS attacks.
     """
+
+    _RISK_TO_ENUM = {
+    'critical': RiskLevel.EVAL,
+    'high': RiskLevel.DOCUMENT_WRITE,
+    'medium': RiskLevel.INNER_HTML,
+    'low': RiskLevel.LOCATION,
+    'unknown': RiskLevel.INNER_HTML,
+    }
+
+    _CLEAN_SOURCE_REGEX = compile(r'([a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)+)')
     
     def __init__(self, html: str, level: int = 2) -> None:
         """
@@ -53,13 +65,7 @@ class StaticAnalyzer:
         potential DOM XSS vulnerabilities. It checks both inline JavaScript code
         and HTML element attributes.
         """
-        risk_to_enum = {
-            'critical': RiskLevel.EVAL,
-            'high': RiskLevel.DOCUMENT_WRITE,
-            'medium': RiskLevel.INNER_HTML,
-            'low': RiskLevel.LOCATION,
-            'unknown': RiskLevel.INNER_HTML,
-        }
+        risk_to_enum = self._RISK_TO_ENUM
         seen_occurrences = set()
 
         # Analyze inline scripts
@@ -67,11 +73,10 @@ class StaticAnalyzer:
         for line_num, script in inline_scripts:
             for pattern in DANGEROUS_JS_PATTERNS:
                 for match in pattern.finditer(script):
-                    unique_key = (line_num, match.group())
+                    unique_key = (line_num, match.start(), match.group())
                     if unique_key in seen_occurrences:
                         continue
                     seen_occurrences.add(unique_key)
-                    context_snippet = script[max(0, match.start()-50):match.end()+50][:100]
 
                     if pattern.pattern == r"(?i)\.innerHTML\ s*=":
                         if 'replace' in script and ('[&<>]' in script or '&lt;' in script):
@@ -83,6 +88,7 @@ class StaticAnalyzer:
                         current_line = script[line_start:line_end]
                         if 'replace' in current_line and ('[&<>]' in current_line or '&lt;' in current_line):
                             continue
+
                     risk_level_str = get_risk_level(match.group())
                     risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
                     priority, _ = self.priority_manager.calculate_optimized_priority(
@@ -135,7 +141,7 @@ class StaticAnalyzer:
         Extract DOM sources (e.g., location.hash, location.search) from inline scripts.
         Returns clean source names without method calls or extra characters.
         """
-        import re
+
         sources = set()
         inline_scripts = self.extractor.extract_inline_scripts()
         
@@ -148,7 +154,7 @@ class StaticAnalyzer:
             for pattern in DOM_SOURCES_PATTERNS:
                 for match in pattern.finditer(script):
                     full_match = match.group()
-                    clean = re.search(r'([a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*)+)', full_match)
+                    clean = self._CLEAN_SOURCE_REGEX.search(full_match)
                     if clean:
                         sources.add(clean.group(1))
                     else:
