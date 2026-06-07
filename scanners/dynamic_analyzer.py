@@ -147,33 +147,33 @@ class DynamicAnalyzer:
                    
                     # Priority 2: location.hash
                     elif 'location.hash' in source:
+                        # No encoding for hash fragment
                         if '#' in current_url and '__DOMINATOR_TEST__' in current_url.split('#')[-1]:
-                            new_fragment = current_url.split('#')[-1].replace('__DOMINATOR_TEST__', quote(payload, safe='()'))
+                            new_fragment = current_url.split('#')[-1].replace('__DOMINATOR_TEST__', payload)
                             exploit_url = current_url.split('#')[0] + '#' + new_fragment
                         else:
-                            exploit_url = current_url.split('#')[0] + '#' + quote(payload, safe='()')
+                            exploit_url = current_url.split('#')[0] + '#' + payload
                     
                     # Priority 3: location.search
                     elif 'location.search' in source:
                         # Check if we have a real parameter name (not our test marker)
                         if param_name and param_name != '__dominator_test__':
-                            # Parameter-based injection
-                            encoded_payload = quote(payload, safe='()')
-                            new_params = {param_name: encoded_payload}
+                            # Build query string manually without encoding
+                            query_parts = []
+                            # Add the injected parameter with raw payload
+                            query_parts.append(f"{param_name}={payload}")
+                            # Add other existing parameters without encoding
                             clean_params = parse_qs(parsed.query, keep_blank_values=True)
                             if '__dominator_test__' in clean_params:
                                 del clean_params['__dominator_test__']
                             for k, v in clean_params.items():
-                                if k not in new_params:
-                                    new_params[k] = v if len(v) > 1 else v[0]
-                            new_query = urlencode(new_params, doseq=True)
+                                # For multiple values, take first (simplified)
+                                val = v[0] if isinstance(v, list) else v
+                                query_parts.append(f"{k}={val}")
+                            new_query = '&'.join(query_parts)
                             exploit_url = urlunparse(parsed._replace(query=new_query))
                         else:
-                            # Raw query string injection (no parameter name)
-                            # For display: use raw payload (user will copy-paste)
-                            # For verification: we will use encoded version later
-                            raw_payload = payload
-                            exploit_url = urlunparse(parsed._replace(query=raw_payload))
+                            exploit_url = urlunparse(parsed._replace(query=payload))
                     
                     # Priority 4: fallback for any other source (e.g., document.referrer)
                     elif not exploit_url and 'param value' in source:
@@ -185,22 +185,6 @@ class DynamicAnalyzer:
                         new_query = urlencode(new_params, doseq=True)
                         exploit_url = urlunparse(parsed._replace(query=new_query))
 
-                    if not exploit_url and ('location.search' in source or 'param name:' in source):
-                        parsed = urlparse(current_url)
-                        clean_params = parse_qs(parsed.query, keep_blank_values=True)
-                        if '__dominator_test__' in clean_params:
-                            del clean_params['__dominator_test__']
-                        if param_name:
-                            encoded_payload = quote(payload, safe='()')
-                            new_params = {param_name: encoded_payload}
-                        else:
-                            new_params = {'__dominator_test__': payload}
-                        for k, v in clean_params.items():
-                            if k not in new_params:
-                                new_params[k] = v if len(v) > 1 else v[0]
-                        new_query = urlencode(new_params, doseq=True)
-                        exploit_url = urlunparse(parsed._replace(query=new_query))
-
                     # Special handling for window.name: always use data URI and override
                     if 'window.name' in source:
                         base = current_url.split('?')[0].split('#')[0]
@@ -208,20 +192,6 @@ class DynamicAnalyzer:
                     elif '#' in current_url and '__DOMINATOR_TEST__' in current_url.split('#')[-1]:
                         new_fragment = current_url.split('#')[-1].replace('__DOMINATOR_TEST__', quote(payload, safe='()'))
                         exploit_url = current_url.split('#')[0] + '#' + new_fragment
-
-                    # If no marker found but source indicates a specific parameter name (e.g., 'name')
-                    # we can try to extract that parameter name from the source string
-                    if not exploit_url and 'param value' in source:
-                        # Example source: 'location.search (param value)' - we need param name
-                        # We can parse the current URL and replace all values with payload? 
-                        # Simpler: replace all query parameter values with payload
-                        parsed = urlparse(current_url)
-                        query_params = parse_qs(parsed.query, keep_blank_values=True)
-                        new_params = {}
-                        for key in query_params:
-                            new_params[key] = payload  # replace every param value with payload
-                        new_query = urlencode(new_params, doseq=True)
-                        exploit_url = urlunparse(parsed._replace(query=new_query))
 
                 occurrence: Occurrence = {
                     "line": None,
@@ -251,11 +221,9 @@ class DynamicAnalyzer:
                             # Try to inject real payload into the parameter position
                             parsed = urlparse(current_url)
                             if param_name:
-                                new_params = {param_name: real_payload}
+                                verify_url = urlunparse(parsed._replace(query=f"{param_name}={real_payload}"))
                             else:
-                                new_params = {'__dominator_test__': real_payload}
-                            new_query = urlencode(new_params, doseq=True)
-                            verify_url = urlunparse(parsed._replace(query=new_query))
+                                verify_url = urlunparse(parsed._replace(query=f"__dominator_test__={real_payload}"))
                     
                     if verify_url:
                         try:
