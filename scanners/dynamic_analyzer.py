@@ -130,12 +130,17 @@ class DynamicAnalyzer:
                     
                     # Determine which part (hash or query) contains the marker
                     # We need to replace the marker value with the actual payload
+                    param_name = None
+                    if 'param name:' in source:
+                        try:
+                            param_name = source.split('param name:')[1].split(',')[0].strip()
+                        except:
+                            pass
+
                     if '#' in current_url and '__DOMINATOR_TEST__' in current_url.split('#')[-1]:
-                        # Replace hash part
                         new_fragment = current_url.split('#')[-1].replace('__DOMINATOR_TEST__', quote(payload, safe=''))
                         exploit_url = current_url.split('#')[0] + '#' + new_fragment
                     elif '?' in current_url:
-                        # Replace marker in query parameters
                         query_params = parse_qs(parsed.query, keep_blank_values=True)
                         new_params = {}
                         for key, values in query_params.items():
@@ -148,6 +153,25 @@ class DynamicAnalyzer:
                             new_params[key] = new_values if len(new_values) > 1 else new_values[0]
                         new_query = urlencode(new_params, doseq=True)
                         exploit_url = urlunparse(parsed._replace(query=new_query))
+
+                    if not exploit_url and ('location.search' in source or 'param name:' in source):
+                        parsed = urlparse(current_url)
+                        clean_params = parse_qs(parsed.query, keep_blank_values=True)
+                        if '__dominator_test__' in clean_params:
+                            del clean_params['__dominator_test__']
+                        if param_name:
+                            new_params = {param_name: payload}
+                        else:
+                            new_params = {'__dominator_test__': payload}
+                        for k, v in clean_params.items():
+                            if k not in new_params:
+                                new_params[k] = v if len(v) > 1 else v[0]
+                        new_query = urlencode(new_params, doseq=True)
+                        exploit_url = urlunparse(parsed._replace(query=new_query))
+
+                    if not exploit_url and 'window.name' in source:
+                        base = current_url.split('?')[0].split('#')[0]
+                        exploit_url = f"data:text/html,<script>window.name='{payload}';location.href='{base}';</script>"
                     
                     # If no marker found but source indicates a specific parameter name (e.g., 'name')
                     # we can try to extract that parameter name from the source string
@@ -183,8 +207,53 @@ class DynamicAnalyzer:
                     "source": "dynamic",
                     "injected_url": exploit_url
                 }
+                # Verification with real payload
+                confirmed = False
+                if payload and self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
+                    # Choose appropriate real payload
+                    real_payload = '<img src=x onerror=alert(1)>'
+                    if 'eval' in sink or 'setTimeout' in sink or 'setInterval' in sink or 'Function' in sink:
+                        real_payload = 'alert(1)'
+                    
+                    # Build verification URL using same logic as above
+                    verify_url = None
+                    if exploit_url:
+                        # Replace the suggested payload with real payload in the URL
+                        if '__DOMINATOR_TEST__' in exploit_url:
+                            verify_url = exploit_url.replace('__DOMINATOR_TEST__', real_payload)
+                        else:
+                            # Try to inject real payload into the parameter position
+                            parsed = urlparse(current_url)
+                            if param_name:
+                                new_params = {param_name: real_payload}
+                            else:
+                                new_params = {'__dominator_test__': real_payload}
+                            new_query = urlencode(new_params, doseq=True)
+                            verify_url = urlunparse(parsed._replace(query=new_query))
+                    
+                    if verify_url:
+                        try:
+                            # Navigate to verification URL and wait for dialog
+                            await page.goto(verify_url, wait_until='networkidle')
+                            await page.wait_for_timeout(500)
+                            dialog = await page.wait_for_event('dialog', timeout=3000)
+                            await dialog.dismiss()
+                            confirmed = True
+                            # Update occurrence to critical
+                            occurrence['risk_level'] = 'critical'
+                            occurrence['priority'] = 90.0
+                            occurrence['context'] += f' | CONFIRMED with payload: {real_payload}'
+                            # Also update exploit_url to the verification URL
+                            exploit_url = verify_url
+                        except:
+                            # No alert, still keep as potential
+                            occurrence['context'] += ' | NOT confirmed (no alert)'
+                            pass
+                
                 if payload:
                     occurrence['context'] += f' | SUGGESTED PAYLOAD: {payload}'
+                if exploit_url and not confirmed:
+                    occurrence['injected_url'] = exploit_url
                 self.result.add_dynamic_occurrence(occurrence)
                 
         except Exception as e:
@@ -231,7 +300,7 @@ class DynamicAnalyzer:
                     scripts.forEach(script => {
                         const content = script.textContent || script.innerText;
                         if (content) {
-                            const regex = /\\b(?:URLSearchParams\\.get|params\\.get|new URLSearchParams\\([^)]*\\)\\.get)\\s*\\(\\s*['"]([^'"]+)['"]\\s*\\)/gi;
+                            regex = /\\b(?:URLSearchParams\\.get|params\\.get|new URLSearchParams\\([^)]*\\)\\.get|location\\.search\\s*\\.split\\(['"]\\?['"]\\)\\s*\\[1\\])\\s*\\(\\s*['"]([^'"]+)['"]\\s*\\)/gi
                             let match;
                             while ((match = regex.exec(content)) !== null) {
                                 paramNames.add(match[1]);
