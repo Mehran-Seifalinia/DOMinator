@@ -100,15 +100,8 @@
             get: originalInnerHTMLDescriptor.get,
             configurable: true
         });
-    } else {
-        Element.prototype.__defineSetter__('innerHTML', function(value) {
-            const source = detectSource(value);
-            if (source) {
-                report('innerHTML', source, '<img src=x onerror=alert(1)>', `innerHTML set to: ${value.substring(0, 80)}`);
-            }
-            this.innerHTML = value;
-        });
     }
+    // else fallback omitted to avoid recursion and because modern browsers support descriptors
 
     // Hook Element.prototype.outerHTML setter
     const originalOuterHTMLDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'outerHTML');
@@ -198,7 +191,7 @@
         });
     }
 
-    // Hook Function constructor (حفظ new)
+    // Hook Function constructor (preserve new)
     const originalFunction = window.Function;
     function HookedFunction(...args) {
         const body = args.pop();
