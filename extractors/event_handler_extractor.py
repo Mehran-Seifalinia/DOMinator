@@ -4,7 +4,7 @@ Extracts and analyzes event handlers from HTML content for DOM XSS detection.
 """
 
 from json import dumps
-from typing import List, Dict, Any
+from typing import List, Dict, Optional
 
 from bs4 import BeautifulSoup
 from utils.logger import get_logger
@@ -30,7 +30,7 @@ class EventHandlerExtractor:
     dynamic analysis.
     """
 
-    def __init__(self, html: str, url: str = None) -> None:
+    def __init__(self, html: str, url: Optional[str] = None) -> None:
         """
         Initialize the EventHandlerExtractor with HTML content.
 
@@ -70,7 +70,6 @@ class EventHandlerExtractor:
             of EventHandler objects.
         """
         event_handlers: Dict[str, List[EventHandler]] = {}
-        handler_found = False
 
         for tag in self.soup.find_all(True):
             line = tag.sourceline if hasattr(tag, 'sourceline') else None
@@ -89,7 +88,7 @@ class EventHandlerExtractor:
 
                     risk_level = get_risk_level(attr_name_lower)
                     handler = EventHandler(
-                        tag=str(tag.name),
+                        tag=tag.name,
                         attribute=attr_name_lower,
                         handler=str(attr_value),
                         line=line if line is not None else None,
@@ -101,9 +100,8 @@ class EventHandlerExtractor:
                     # Log each extracted handler (truncate sensitive data)
                     truncated_handler = attr_value[:50] + "..." if len(attr_value) > 50 else attr_value
                     logger.debug(f"Extracted handler - tag: {tag.name}, attr: {attr_name_lower}, handler: {truncated_handler!r}")
-                    handler_found = True
 
-        if not handler_found:
+        if not event_handlers:
             logger.debug("No event handlers found.")
 
         total_handlers = sum(len(handlers) for handlers in event_handlers.values())
