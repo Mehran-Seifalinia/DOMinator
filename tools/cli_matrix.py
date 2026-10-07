@@ -15,6 +15,7 @@ sandbox blocks.
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from json import dump, load
+from os import environ
 from pathlib import Path
 from subprocess import TimeoutExpired, run
 from sys import executable, path as sys_path
@@ -24,12 +25,16 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys_path:
     sys_path.insert(0, str(ROOT))
 
-from tools.lab_server import read_records, serve
+from tools.lab_server import read_records, serve, serve_proxy
+from utils.payload_store import DEFAULT_PAYLOAD, PRIMARY_PAYLOADS, cache_path, load_payloads
 
 DOMINATOR = ROOT / "dominator.py"
 LAB_DIR = ROOT / "labs" / "dom-xss-lab"
 OUTPUT_DIR = ROOT / ".tmp" / "cli-matrix"
 RECORD_FILE = OUTPUT_DIR / "requests.jsonl"
+PROXY_RECORD_FILE = OUTPUT_DIR / "proxy-requests.jsonl"
+PAYLOAD_SOURCE_FILE = OUTPUT_DIR / "payloads-source.json"
+PAYLOAD_CACHE = cache_path(ROOT)
 LIST_FILE = OUTPUT_DIR / "targets.txt"
 MISSING_LIST_FILE = OUTPUT_DIR / "absent.txt"
 
@@ -50,6 +55,7 @@ class Case:
     output: Optional[str] = None
     validate: Optional[Validator] = None
     timeout: int = 300
+    env: Tuple[Tuple[str, str], ...] = ()
 
 
 @dataclass
@@ -101,15 +107,35 @@ def validate_error_status(payload: Any, _out: Path, _records: List[Dict[str, Any
 
 
 def validate_csv(_payload: Any, out: Path, _records: List[Dict[str, Any]]) -> None:
-    text = out.read_text(encoding="utf-8", errors="replace")
-    require(len(text.splitlines()) >= 2, "csv has no data row")
-    require("http" in text, "csv does not contain the target url")
+    lines = out.read_text(encoding="utf-8", errors="replace").splitlines()
+    require(len(lines) >= 2, "csv has no data row")
+    require(
+        "url" in lines[0] and "static_vulnerabilities" in lines[0],
+        f"unexpected csv header: {lines[0][:80]}",
+    )
+    require("http" in lines[1], "the csv data row carries no target url")
 
 
 def validate_html(_payload: Any, out: Path, _records: List[Dict[str, Any]]) -> None:
     text = out.read_text(encoding="utf-8", errors="replace").lower()
     require("<html" in text or "<!doctype" in text, "html report is not a document")
+    require("severity" in text, "html report carries no severity")
     require("http" in text, "html report does not contain the target url")
+
+
+def validate_proxy_used(_payload: Any, _out: Path, _records: List[Dict[str, Any]]) -> None:
+    proxy_records = read_records(PROXY_RECORD_FILE)
+    require(bool(proxy_records), "the proxy recorded no request")
+    absolute = [
+        record for record in proxy_records
+        if str(record.get("path", "")).lower().startswith("http")
+    ]
+    require(bool(absolute), f"no absolute URI reached the proxy: {proxy_records[:2]}")
+
+
+def validate_cache_written(_payload: Any, _out: Path, _records: List[Dict[str, Any]]) -> None:
+    require(PAYLOAD_CACHE.is_file(), "the payload cache was not written")
+    require(bool(load_payloads(PAYLOAD_CACHE)), "the payload cache is empty")
 
 
 def validate_user_agent(_payload: Any, _out: Path, records: List[Dict[str, Any]]) -> None:
@@ -167,11 +193,13 @@ BEHAVIOR_CASES: Tuple[Case, ...] = (
     Case("user-agent", ("-u", "{target}", "-l", "1", "--user-agent", "dsh-matrix-probe", "-o", "{out}", "-r", "json"), tier="behavior", output="user-agent.json", validate=validate_user_agent),
     Case("cookie", ("-u", "{target}", "-l", "1", "--cookie", "dsh=probe", "-o", "{out}", "-r", "json"), tier="behavior", output="cookie.json", validate=validate_cookie),
     Case("auto-update", ("-u", "{target}", "-l", "1", "--auto-update", "-o", "{out}", "-r", "json"), tier="behavior", output="auto-update.json", expect_out=("keeping the built in payloads",), validate=validate_completed),
+    Case("auto-update-live", ("-u", "{target}", "-l", "1", "--auto-update", "-o", "{out}", "-r", "json"), tier="behavior", output="auto-update-live.json", expect_out=("Refreshed",), env=(("DOMINATOR_PAYLOAD_SOURCE", "{payload_source}"),), validate=validate_cache_written),
     Case("quiet", ("-u", "{target}", "-l", "1", "-q", "-o", "{out}", "-r", "json"), tier="behavior", output="quiet.json", expect_out=("Vulnerability Report",), expect_absent=("started scanning",), validate=validate_completed),
     Case("verbose", ("-u", "{target}", "-l", "1", "-v", "-o", "{out}", "-r", "json"), tier="behavior", output="verbose.json", expect_out=("DEBUG",), validate=validate_completed),
     Case("unreachable", ("-u", "http://127.0.0.1:9/", "-o", "{out}", "-r", "json"), tier="behavior", output="unreachable.json", needs_target=False, expect_exit=3, expect_out=("No target was reachable",), validate=validate_error_status),
     Case("force-unreachable", ("-u", "http://127.0.0.1:9/", "-f", "-o", "{out}", "-r", "json"), tier="behavior", output="force-unreachable.json", needs_target=False, expect_absent=("No target was reachable",), validate=validate_error_status),
     Case("proxy-dead", ("-u", "{target}", "-l", "1", "-p", "http://127.0.0.1:9", "-o", "{out}", "-r", "json"), tier="behavior", output="proxy-dead.json", expect_exit=3, validate=validate_error_status),
+    Case("proxy-live", ("-u", "{target}", "-l", "1", "-p", "{proxy}", "-o", "{out}", "-r", "json"), tier="behavior", output="proxy-live.json", validate=validate_proxy_used),
     Case("list-url", ("-L", "{list}", "-l", "1", "-o", "{out}", "-r", "json"), tier="behavior", output="list-url.json", validate=validate_two_results),
     Case("output-nested", ("-u", "{target}", "-l", "1", "-o", "{out}", "-r", "json"), tier="behavior", output="nested/deep/out.json", validate=validate_completed),
     Case("visible-window", ("-u", "{target}", "-l", "2", "--visible", "-o", "{out}", "-r", "json"), tier="behavior", output="visible.json", validate=validate_completed, timeout=600),
@@ -183,29 +211,43 @@ def all_cases() -> Tuple[Case, ...]:
     return PLAN_CASES + BEHAVIOR_CASES
 
 
-def format_args(case: Case, target: str, output_path: Path) -> List[str]:
-    """Substitute the placeholders of one case."""
-    values = {
+def base_values(target: str, proxy: str, payload_source: str) -> Dict[str, str]:
+    """Return every placeholder value a case may use."""
+    return {
         "target": target,
-        "out": str(output_path),
         "list": str(LIST_FILE),
         "missing": str(MISSING_LIST_FILE),
+        "proxy": proxy,
+        "payload_source": payload_source,
     }
+
+
+def format_args(case: Case, values: Dict[str, str]) -> List[str]:
+    """Substitute the placeholders of one case's arguments."""
     return [argument.format(**values) for argument in case.args]
 
 
-def check_case(case: Case, target: str) -> Result:
+def format_env(case: Case, values: Dict[str, str]) -> Dict[str, str]:
+    """Substitute the placeholders of one case's environment."""
+    return {key: value.format(**values) for key, value in case.env}
+
+
+def check_case(case: Case, values: Dict[str, str]) -> Result:
     """Run one case and evaluate its expectations."""
     output_path = OUTPUT_DIR / case.output if case.output else OUTPUT_DIR / f"{case.name}.json"
-    args = format_args(case, target, output_path)
+    case_values = {**values, "out": str(output_path)}
+    args = format_args(case, case_values)
     if case.output and output_path.exists():
         output_path.unlink()
-    if case.tier == "behavior" and RECORD_FILE.exists():
-        RECORD_FILE.unlink()
+    if case.tier == "behavior":
+        for path in (RECORD_FILE, PROXY_RECORD_FILE):
+            if path.exists():
+                path.unlink()
     try:
         completed = run(
             [executable, str(DOMINATOR), *args],
             cwd=str(ROOT),
+            env={**environ, **format_env(case, case_values)},
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -246,10 +288,13 @@ def check_case(case: Case, target: str) -> Result:
 
 
 def prepare() -> None:
-    """Create the output directory and the list files the cases need."""
+    """Create the output directory and the files the cases need."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    if RECORD_FILE.exists():
-        RECORD_FILE.unlink()
+    for path in (RECORD_FILE, PROXY_RECORD_FILE):
+        if path.exists():
+            path.unlink()
+    with PAYLOAD_SOURCE_FILE.open("w", encoding="utf-8") as handle:
+        dump({**PRIMARY_PAYLOADS, "default": DEFAULT_PAYLOAD}, handle, indent=2)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -278,10 +323,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
 
     results: List[Result] = []
-    with serve(LAB_DIR, record_file=RECORD_FILE) as target:
+    with serve(LAB_DIR, record_file=RECORD_FILE) as target, \
+            serve_proxy(record_file=PROXY_RECORD_FILE) as proxy, \
+            serve(OUTPUT_DIR) as source_base:
         LIST_FILE.write_text(f"{target}\n{target}status.json\n", encoding="utf-8")
+        values = base_values(target, proxy, f"{source_base}payloads-source.json")
         for case in selected:
-            outcome = check_case(case, target)
+            outcome = check_case(case, values)
             results.append(outcome)
             status = "PASS" if outcome.passed else "FAIL"
             detail = f"  {outcome.reason}" if outcome.reason else ""

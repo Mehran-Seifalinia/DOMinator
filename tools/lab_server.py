@@ -8,16 +8,18 @@ flags such as --user-agent and --cookie really reached the target.
 
 from contextlib import contextmanager
 from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
 from json import dumps, loads
 from pathlib import Path
 from threading import Lock, Thread
 from time import sleep
 from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import parse_qs, urlparse
+from urllib.request import ProxyHandler, build_opener
 
 _WRITE_LOCK = Lock()
 MAX_DELAY_SECONDS = 30.0
+_UPSTREAM_OPENER = build_opener(ProxyHandler({}))
 
 
 def read_records(path: Path) -> List[Dict[str, Any]]:
@@ -87,6 +89,61 @@ def serve(
     thread.start()
     try:
         yield f"http://127.0.0.1:{httpd.server_address[1]}/"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+
+class RecordingProxyHandler(BaseHTTPRequestHandler):
+    """Minimal forward proxy for plain HTTP GET.
+
+    A scan started with --proxy sends the absolute URI to the proxy, so a
+    recorded request is proof that the traffic really went through it.
+    """
+
+    record_file: Optional[Path] = None
+    upstream_timeout = 10.0
+
+    def do_GET(self) -> None:  # noqa: N802 - the base class fixes this name
+        if self.record_file is not None:
+            entry = {
+                "path": self.path,
+                "headers": {key.lower(): value for key, value in self.headers.items()},
+            }
+            line = dumps(entry) + "\n"
+            with _WRITE_LOCK:
+                with self.record_file.open("a", encoding="utf-8") as handle:
+                    handle.write(line)
+        if not self.path.lower().startswith("http"):
+            self.send_error(400, "the proxy expects an absolute URI")
+            return
+        try:
+            with _UPSTREAM_OPENER.open(self.path, timeout=self.upstream_timeout) as response:
+                body = response.read()
+                status = response.status
+        except Exception:
+            self.send_error(502, "the upstream request failed")
+            return
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        """Silence the default stderr logging."""
+
+
+@contextmanager
+def serve_proxy(port: int = 0, record_file: Optional[Path] = None) -> Iterator[str]:
+    """Serve a recording HTTP proxy on 127.0.0.1 and yield its URL."""
+    handler_class = type("BoundProxyHandler", (RecordingProxyHandler,), {"record_file": record_file})
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), handler_class)
+    thread = Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{httpd.server_address[1]}"
     finally:
         httpd.shutdown()
         httpd.server_close()
