@@ -14,6 +14,7 @@ from scanners.dynamic_analyzer import DynamicAnalyzer
 from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity, AttackVector
 from utils.logger import get_logger
 from utils.analysis_result import AnalysisResult
+from utils.console import SYMBOLS, severity_tag
 from argparse import ArgumentParser, Namespace
 from sys import exit, stderr, stdout
 from csv import DictWriter
@@ -250,7 +251,7 @@ async def scan_url_async(
         if auto_update:
             logger.info("Auto-update payloads: Placeholder - implement fetching latest patterns.")
 
-        logger.info(f"🔍 DOMinator started scanning: {url}")
+        logger.info(f"{SYMBOLS['start']} DOMinator started scanning: {url}")
 
         # Prepare headers
         headers = {}
@@ -277,12 +278,12 @@ async def scan_url_async(
             pages_to_scan.extend(crawled_pages)
             logger.info(f"Crawled total {len(pages_to_scan)} pages from {url}")
 
-        logger.info(f"📄 Found {len(pages_to_scan)} page(s) to analyze (depth={max_depth})")
+        logger.info(f"{SYMBOLS['pages']} Found {len(pages_to_scan)} page(s) to analyze (depth={max_depth})")
 
         # Analyze each page separately
         for page_url, page_html in pages_to_scan:
             try:
-                logger.info(f"🔄 Analyzing: {page_url}")
+                logger.info(f"{SYMBOLS['analyze']} Analyzing: {page_url}")
                 page_start_time = time()
                 result = AnalysisResult()
                 result.url = page_url
@@ -752,15 +753,13 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
         if severity == "Informative" and total_vulns == 0:
             severity_str = ""
         else:
-            emoji_map = {"Critical": "🔥", "High": "🔴", "Medium": "🟡", "Low": "🟢", "Informative": "ℹ️"}
-            emoji = emoji_map.get(severity, "⚪")
-            severity_str = f" | Severity: {emoji} {severity}"
+            severity_str = f" | Severity: {severity_tag(severity)} {severity}"
 
         print(f"\n[{idx}] {GREEN}URL:{RESET} {url}")
         print(f"    {GREEN}Status:{RESET} {status}{severity_str} | {GREEN}Time:{RESET} {elapsed:.2f}s")
 
         if status == "error":
-            print(f"    ❌ Error: {res.get('error_message', 'No details')}")
+            print(f"    {SYMBOLS['error']} Error: {res.get('error_message', 'No details')}")
             continue
 
         static = [occ for occ in res.get("static_occurrences", []) if not is_false_positive(occ)]
@@ -802,10 +801,10 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
         total = len(filtered_static) + len(filtered_dynamic) + sum(len(v) for v in event_handlers.values()) + len(external)
 
         if total == 0:
-            print("    ✅ No DOM XSS vulnerabilities detected.")
+            print(f"    {SYMBOLS['clean']} No DOM XSS vulnerabilities detected.")
             continue
 
-        print(f"    ⚠️ Found {total} potential issue(s):")
+        print(f"    {SYMBOLS['found']} Found {total} potential issue(s):")
         
         for occ in filtered_dynamic:
             pattern = occ.get("pattern", "?")
@@ -818,17 +817,17 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
                 if match:
                     payload = match.group(1)
             injection = "hash" if "hash" in pattern.lower() else "query" if "query" in pattern.lower() else "URL"
-            print(f"      🔥 {pattern}")
+            print(f"      {SYMBOLS['finding']} {pattern}")
             if line:
-                print(f"         📍 Line: {line}")
+                print(f"         Line: {line}")
             if payload:
-                print(f"         💉 Payload: {payload}")
+                print(f"         Payload: {payload}")
             if injection:
-                print(f"         🎯 Injection point: {injection}")
+                print(f"         Injection point: {injection}")
             if injected_url:
-                print(f"         🔗 {RED}Exploit URL:{RESET} {injected_url}")
+                print(f"         {RED}Exploit URL:{RESET} {injected_url}")
             else:
-                print(f"         💡 Test with <img src=x onerror=alert(1)>")
+                print(f"         Test with <img src=x onerror=alert(1)>")
 
         for occ in filtered_static:
             pattern = occ.get("pattern", "?")
@@ -840,8 +839,8 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
             print(f"      [STATIC] {pattern} (line {line}) [UNVERIFIED]")
             if context:
                 short_ctx = context[:100] + "..." if len(context) > 100 else context
-                print(f"         📝 Context: {short_ctx}")
-            print(f"         💡 {hint} (No alert triggered - may be false positive)")
+                print(f"         Context: {short_ctx}")
+            print(f"         {hint} (No alert triggered - may be false positive)")
 
         for handler_type, handlers in event_handlers.items():
             for handler in handlers:
@@ -852,7 +851,7 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
                 temp_occ = {"pattern": attr, "context": code}
                 hint = get_exploit_hint(temp_occ).split('.')[0]
                 print(f"      [EVENT] {tag}[{attr}] = \"{code[:50]}{'...' if len(code)>50 else ''}\" (line {line})")
-                print(f"         💡 {hint}")
+                print(f"         {hint}")
 
     print("\n" + "=" * 80)
 
@@ -976,7 +975,7 @@ async def main() -> None:
             await write_results_to_html(results, args.output)
             print(f"Results written to {args.output} in HTML format")
     else:
-        print("\n💡 Tip: Use -o <filename> to save results to a file.")
+        print("\nTip: Use -o <filename> to save results to a file.")
 
 if __name__ == "__main__":
     run(main())
