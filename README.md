@@ -133,13 +133,14 @@ python dominator.py -u https://example.com -l 3 -t 4 -o results.json -r json -v
 | `-p, --proxy` | Set proxy for HTTP requests |
 | `-v, --verbose` | Enable verbose output |
 | `-q, --quiet` | Suppress all info logs, show only final report |
-| `-b, --blacklist` | Comma-separated list of URLs to exclude |
+| `-b, --blacklist` | Comma-separated URLs, hosts, directories or `*` patterns to exclude |
 | `--no-external` | Skip external JavaScript files |
 | `--visible` | Show the browser window (disable headless mode) |
 | `--user-agent` | Set custom User-Agent |
 | `--cookie` | Send custom cookies |
-| `--max-depth` | Set maximum crawling depth |
-| `--auto-update` | Refresh the payload list from the URL in `DOMINATOR_PAYLOAD_SOURCE` before scanning |
+| `--max-depth` | Set maximum crawling depth; crawling always stays on the host of the starting URL |
+| `--auto-update` | Refresh the payload list from `--payload-source` or `DOMINATOR_PAYLOAD_SOURCE` before scanning |
+| `--payload-source` | Payload document for `--auto-update`: an http(s) URL or a local JSON file |
 | `--dry-run` | Print the scan plan and exit without sending requests or launching a browser |
 
 ---

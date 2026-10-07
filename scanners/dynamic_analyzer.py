@@ -275,15 +275,19 @@ class DynamicAnalyzer:
                     if verify_url:
                         confirmed_url = verify_url
                         confirmed = await self._confirm_payload(page, verify_url, window_name_payload)
-                        if not confirmed and self.level >= 4 and real_payload in verify_url:
+                        if not confirmed and self.level >= 4:
                             # Level 4 retries once with the second payload variant.
                             fallback = payload_for(sink, 1, self.payload_overrides)
-                            retry_url = verify_url.replace(real_payload, fallback)
-                            retry_name = fallback if window_name_payload is not None else None
-                            if await self._confirm_payload(page, retry_url, retry_name):
-                                confirmed = True
-                                confirmed_url = retry_url
-                                real_payload = fallback
+                            if window_name_payload is not None:
+                                if await self._confirm_payload(page, verify_url, fallback):
+                                    confirmed = True
+                                    real_payload = fallback
+                            elif real_payload in verify_url:
+                                retry_url = verify_url.replace(real_payload, fallback)
+                                if await self._confirm_payload(page, retry_url, None):
+                                    confirmed = True
+                                    confirmed_url = retry_url
+                                    real_payload = fallback
                         if confirmed:
                             occurrence['risk_level'] = 'critical'
                             occurrence['priority'] = 90.0

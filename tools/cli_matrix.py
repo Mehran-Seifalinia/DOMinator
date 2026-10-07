@@ -35,6 +35,9 @@ RECORD_FILE = OUTPUT_DIR / "requests.jsonl"
 PROXY_RECORD_FILE = OUTPUT_DIR / "proxy-requests.jsonl"
 PAYLOAD_SOURCE_FILE = OUTPUT_DIR / "payloads-source.json"
 PAYLOAD_CACHE = cache_path(ROOT)
+CROSS_DIR = OUTPUT_DIR / "cross"
+SOURCE_RECORD_FILE = OUTPUT_DIR / "payload-source-requests.jsonl"
+CROSS_RECORD_FILE = OUTPUT_DIR / "cross-requests.jsonl"
 LIST_FILE = OUTPUT_DIR / "targets.txt"
 MISSING_LIST_FILE = OUTPUT_DIR / "absent.txt"
 
@@ -56,6 +59,7 @@ class Case:
     validate: Optional[Validator] = None
     timeout: int = 300
     env: Tuple[Tuple[str, str], ...] = ()
+    setup: Optional[Callable[[Dict[str, str]], None]] = None
 
 
 @dataclass
@@ -138,6 +142,33 @@ def validate_cache_written(_payload: Any, _out: Path, _records: List[Dict[str, A
     require(bool(load_payloads(PAYLOAD_CACHE)), "the payload cache is empty")
 
 
+def write_cross_fixture(values: Dict[str, str]) -> None:
+    """Write a page that links to one page on its own host and one outside it."""
+    CROSS_DIR.mkdir(parents=True, exist_ok=True)
+    (CROSS_DIR / "index.html").write_text(
+        "<!doctype html><html><body>"
+        '<a href="page2.html">inside</a>'
+        f'<a href="{values["target"]}out-of-scope.html">outside</a>'
+        "</body></html>",
+        encoding="utf-8",
+    )
+    (CROSS_DIR / "page2.html").write_text(
+        "<!doctype html><html><body><p>second page</p></body></html>",
+        encoding="utf-8",
+    )
+
+
+def validate_scope(payload: Any, _out: Path, _records: List[Dict[str, Any]]) -> None:
+    require(
+        isinstance(payload, list) and len(payload) == 2,
+        f"expected the entry page and one crawled page, got {len(payload or [])}",
+    )
+    outside = [str(record.get("path", "")) for record in read_records(RECORD_FILE)]
+    require(not any("out-of-scope" in path for path in outside), f"the crawler left the host: {outside}")
+    inside = [str(record.get("path", "")) for record in read_records(CROSS_RECORD_FILE)]
+    require(any("page2.html" in path for path in inside), f"the in-scope link was not followed: {inside}")
+
+
 def validate_user_agent(_payload: Any, _out: Path, records: List[Dict[str, Any]]) -> None:
     agents = [record["headers"].get("user-agent", "") for record in records]
     require(any("dsh-matrix-probe" in agent for agent in agents), f"user agent never arrived: {agents}")
@@ -194,6 +225,10 @@ BEHAVIOR_CASES: Tuple[Case, ...] = (
     Case("cookie", ("-u", "{target}", "-l", "1", "--cookie", "dsh=probe", "-o", "{out}", "-r", "json"), tier="behavior", output="cookie.json", validate=validate_cookie),
     Case("auto-update", ("-u", "{target}", "-l", "1", "--auto-update", "-o", "{out}", "-r", "json"), tier="behavior", output="auto-update.json", expect_out=("keeping the built in payloads",), validate=validate_completed),
     Case("auto-update-live", ("-u", "{target}", "-l", "1", "--auto-update", "-o", "{out}", "-r", "json"), tier="behavior", output="auto-update-live.json", expect_out=("Refreshed",), env=(("DOMINATOR_PAYLOAD_SOURCE", "{payload_source}"),), validate=validate_cache_written),
+    Case("payload-source-file", ("-u", "{target}", "-l", "1", "--auto-update", "--payload-source", "{payload_source_file}", "-o", "{out}", "-r", "json"), tier="behavior", output="payload-source-file.json", expect_out=("Refreshed",), validate=validate_cache_written),
+    Case("payload-source-dead", ("-u", "{target}", "-l", "1", "--auto-update", "--payload-source", "http://127.0.0.1:9/payloads.json", "-o", "{out}", "-r", "json"), tier="behavior", output="payload-source-dead.json", expect_out=("Could not refresh the payloads",), validate=validate_completed),
+    Case("payload-source-missing", ("-u", "{target}", "-l", "1", "--auto-update", "--payload-source", "{missing}", "-o", "{out}", "-r", "json"), tier="behavior", output="payload-source-missing.json", expect_out=("neither a URL nor a file",), validate=validate_completed),
+    Case("crawl-scope", ("-u", "{cross}index.html", "-l", "1", "--max-depth", "2", "-o", "{out}", "-r", "json"), tier="behavior", output="crawl-scope.json", setup=write_cross_fixture, validate=validate_scope),
     Case("quiet", ("-u", "{target}", "-l", "1", "-q", "-o", "{out}", "-r", "json"), tier="behavior", output="quiet.json", expect_out=("Vulnerability Report",), expect_absent=("started scanning",), validate=validate_completed),
     Case("verbose", ("-u", "{target}", "-l", "1", "-v", "-o", "{out}", "-r", "json"), tier="behavior", output="verbose.json", expect_out=("DEBUG",), validate=validate_completed),
     Case("unreachable", ("-u", "http://127.0.0.1:9/", "-o", "{out}", "-r", "json"), tier="behavior", output="unreachable.json", needs_target=False, expect_exit=3, expect_out=("No target was reachable",), validate=validate_error_status),
@@ -211,7 +246,13 @@ def all_cases() -> Tuple[Case, ...]:
     return PLAN_CASES + BEHAVIOR_CASES
 
 
-def base_values(target: str, proxy: str, payload_source: str) -> Dict[str, str]:
+def base_values(
+    target: str,
+    proxy: str = "",
+    payload_source: str = "",
+    cross: str = "",
+    cwd: str = str(ROOT),
+) -> Dict[str, str]:
     """Return every placeholder value a case may use."""
     return {
         "target": target,
@@ -219,6 +260,9 @@ def base_values(target: str, proxy: str, payload_source: str) -> Dict[str, str]:
         "missing": str(MISSING_LIST_FILE),
         "proxy": proxy,
         "payload_source": payload_source,
+        "payload_source_file": str(PAYLOAD_SOURCE_FILE),
+        "cross": cross,
+        "cwd": cwd,
     }
 
 
@@ -237,16 +281,18 @@ def check_case(case: Case, values: Dict[str, str]) -> Result:
     output_path = OUTPUT_DIR / case.output if case.output else OUTPUT_DIR / f"{case.name}.json"
     case_values = {**values, "out": str(output_path)}
     args = format_args(case, case_values)
+    if case.setup is not None:
+        case.setup(case_values)
     if case.output and output_path.exists():
         output_path.unlink()
     if case.tier == "behavior":
-        for path in (RECORD_FILE, PROXY_RECORD_FILE):
+        for path in (RECORD_FILE, PROXY_RECORD_FILE, CROSS_RECORD_FILE, SOURCE_RECORD_FILE):
             if path.exists():
                 path.unlink()
     try:
         completed = run(
             [executable, str(DOMINATOR), *args],
-            cwd=str(ROOT),
+            cwd=case_values.get("cwd", str(ROOT)),
             env={**environ, **format_env(case, case_values)},
             capture_output=True,
             text=True,
@@ -290,7 +336,8 @@ def check_case(case: Case, values: Dict[str, str]) -> Result:
 def prepare() -> None:
     """Create the output directory and the files the cases need."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    for path in (RECORD_FILE, PROXY_RECORD_FILE):
+    CROSS_DIR.mkdir(parents=True, exist_ok=True)
+    for path in (RECORD_FILE, PROXY_RECORD_FILE, CROSS_RECORD_FILE, SOURCE_RECORD_FILE):
         if path.exists():
             path.unlink()
     with PAYLOAD_SOURCE_FILE.open("w", encoding="utf-8") as handle:
@@ -304,6 +351,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--only", action="append", default=[], help="Run only these case names (repeatable)")
     parser.add_argument("--dry-run", action="store_true", help="Print the cases without running them")
     parser.add_argument("--json", type=str, help="Write the results as JSON to this path")
+    parser.add_argument("--cwd", type=str, default=str(ROOT), help="Directory to run the scanner from")
     args = parser.parse_args(argv)
 
     prepare()
@@ -325,9 +373,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     results: List[Result] = []
     with serve(LAB_DIR, record_file=RECORD_FILE) as target, \
             serve_proxy(record_file=PROXY_RECORD_FILE) as proxy, \
-            serve(OUTPUT_DIR) as source_base:
+            serve(OUTPUT_DIR, record_file=SOURCE_RECORD_FILE) as source_base, \
+            serve(CROSS_DIR, record_file=CROSS_RECORD_FILE) as cross_base:
         LIST_FILE.write_text(f"{target}\n{target}status.json\n", encoding="utf-8")
-        values = base_values(target, proxy, f"{source_base}payloads-source.json")
+        values = base_values(target, proxy, f"{source_base}payloads-source.json", cross_base, args.cwd)
         for case in selected:
             outcome = check_case(case, values)
             results.append(outcome)

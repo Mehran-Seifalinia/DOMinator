@@ -16,6 +16,7 @@ from utils.logger import get_logger
 from utils.analysis_result import AnalysisResult
 from utils.console import SYMBOLS, severity_tag
 from utils.payload_store import SOURCE_ENV, cache_path, load_payloads, refresh_payloads
+from utils.scope import in_scope, is_blacklisted
 from argparse import ArgumentParser, Namespace
 from sys import exit, stderr, stdout
 from os import environ
@@ -86,7 +87,8 @@ def parse_args() -> ArgumentParser:
     parser.add_argument('--user-agent', type=str, help='Set a custom User-Agent')
     parser.add_argument('--cookie', type=str, help='Send custom cookies')
     parser.add_argument('--max-depth', type=int, default=1, help='Set maximum crawling depth (currently basic implementation)')
-    parser.add_argument('--auto-update', action='store_true', help=f'Refresh the payload list from the URL in {SOURCE_ENV} before scanning')
+    parser.add_argument('--auto-update', action='store_true', help='Refresh the payload list before scanning')
+    parser.add_argument('--payload-source', type=str, help=f'Payload document for --auto-update: an http(s) URL or a local JSON file (default: {SOURCE_ENV})')
     parser.add_argument('--dry-run', action='store_true', help='Print the scan plan and exit without sending requests or launching a browser')
     return parser.parse_args()
 
@@ -191,6 +193,11 @@ async def crawl_links(html_content: str, base_url: str, max_depth: int, visited:
                 href = link.get("href")
                 if href:
                     full_url = urljoin(current_url, href)
+                    # Staying on the host of the starting URL keeps the scan
+                    # inside the engagement; an outside link would send requests
+                    # to a host nobody authorised.
+                    if not in_scope(full_url, base_url):
+                        continue
                     # Normalize URL by removing fragment for deduplication
                     normalized = normalize_url(full_url)
                     if normalized in visited:
@@ -245,15 +252,10 @@ async def scan_url_async(
     """
     try:        
         if blacklist:
-            blacklist_urls = [bl.strip() for bl in blacklist.split(',')]
-            parsed_target = urlparse(url)
-            target_key = f"{parsed_target.netloc}{parsed_target.path}".rstrip('/')
-            for bl in blacklist_urls:
-                parsed_bl = urlparse(bl)
-                bl_key = f"{parsed_bl.netloc}{parsed_bl.path}".rstrip('/')
-                if target_key == bl_key:
-                    logger.info(f"Skipping blacklisted URL: {url}")
-                    return
+            entries = [entry.strip() for entry in blacklist.split(',')]
+            if is_blacklisted(url, entries):
+                logger.info(f"Skipping blacklisted URL: {url}")
+                return
 
         logger.info(f"{SYMBOLS['start']} DOMinator started scanning: {url}")
 
@@ -345,6 +347,22 @@ async def scan_url_async(
                 if any('srcdoc' in p.lower() for p in dynamic_patterns):
                     # srcdoc injects markup like innerHTML, and the scoring table
                     # rejects a member it does not know, so reuse INNER_HTML.
+                    methods.append(RiskLevel.INNER_HTML)
+
+                external_patterns = [str(occ.get('pattern', '')).lower() for occ in result.external_script_risks]
+                if any(
+                    token in pattern
+                    for pattern in external_patterns
+                    for token in ('eval', 'function', 'write')
+                ):
+                    methods.append(RiskLevel.EVAL)
+                elif any(
+                    token in pattern
+                    for pattern in external_patterns
+                    for token in ('settimeout', 'setinterval')
+                ):
+                    methods.append(RiskLevel.SET_TIMEOUT)
+                elif external_patterns:
                     methods.append(RiskLevel.INNER_HTML)
 
                 if methods or result.dynamic_occurrences:
@@ -888,7 +906,7 @@ def print_dry_run(args: Namespace) -> None:
     print(f"Proxy            : {args.proxy if args.proxy else '(none)'}")
     print(f"External scripts : {'skipped' if args.no_external else 'analyzed'}")
     print(f"Headless         : {not args.visible}")
-    print(f"Payload source   : {environ.get(SOURCE_ENV) or '(built in)'}")
+    print(f"Payload source   : {args.payload_source or environ.get(SOURCE_ENV) or '(built in)'}")
     print(f"Auto update      : {args.auto_update}")
 
 async def main() -> None:
@@ -951,7 +969,9 @@ async def main() -> None:
 
     async with ClientSession(**session_kwargs) as session:
         if args.auto_update:
-            payload_overrides = await refresh_payloads(session, cache_path(PROJECT_ROOT))
+            payload_overrides = await refresh_payloads(
+                session, cache_path(PROJECT_ROOT), args.payload_source or ""
+            )
         else:
             payload_overrides = load_payloads(cache_path(PROJECT_ROOT))
 

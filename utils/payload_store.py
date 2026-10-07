@@ -111,28 +111,47 @@ def save_payloads(path: Path, payloads: Dict[str, str]) -> None:
     path.write_text(dumps(payloads, indent=2), encoding="utf-8")
 
 
-async def refresh_payloads(session: ClientSession, path: Path) -> Dict[str, str]:
-    """Fetch the payload list from DOMINATOR_PAYLOAD_SOURCE and cache it.
+async def refresh_payloads(session: ClientSession, path: Path, source: str = "") -> Dict[str, str]:
+    """Read the payload list from a source and cache it.
 
-    Returns the refreshed payloads, or an empty mapping when no source is
-    configured or the fetch failed; the scan then keeps the built in payloads.
+    The source is an http(s) URL or a local JSON file. It comes from
+    --payload-source, falling back to DOMINATOR_PAYLOAD_SOURCE. Returns the
+    refreshed payloads, or an empty mapping when no source is configured or the
+    read failed; the scan then keeps the built in payloads.
     """
-    source = environ.get(SOURCE_ENV, "").strip()
+    source = source.strip() or environ.get(SOURCE_ENV, "").strip()
     if not source:
-        logger.warning("%s is not set, keeping the built in payloads", SOURCE_ENV)
+        logger.warning(
+            "No payload source given, keeping the built in payloads; "
+            "pass --payload-source URL|FILE or set %s",
+            SOURCE_ENV,
+        )
         return {}
-    try:
-        async with session.get(source, timeout=TIMEOUT_SECONDS) as response:
-            if response.status != 200:
-                logger.warning(
-                    "Payload source answered HTTP %s, keeping the built in payloads",
-                    response.status,
-                )
-                return {}
-            payloads = parse_payloads(await response.json(content_type=None))
-    except Exception as error:
-        logger.warning("Could not refresh the payloads: %s", error)
-        return {}
+
+    if source.lower().startswith(("http://", "https://")):
+        try:
+            async with session.get(source, timeout=TIMEOUT_SECONDS) as response:
+                if response.status != 200:
+                    logger.warning(
+                        "Payload source answered HTTP %s, keeping the built in payloads",
+                        response.status,
+                    )
+                    return {}
+                payloads = parse_payloads(await response.json(content_type=None))
+        except Exception as error:
+            logger.warning("Could not refresh the payloads: %s", error)
+            return {}
+    else:
+        source_path = Path(source)
+        if not source_path.is_file():
+            logger.warning("Payload source %s is neither a URL nor a file", source)
+            return {}
+        try:
+            payloads = parse_payloads(loads(source_path.read_text(encoding="utf-8")))
+        except (ValueError, OSError) as error:
+            logger.warning("Could not read the payload source %s: %s", source, error)
+            return {}
+
     save_payloads(path, payloads)
     logger.info("Refreshed %d payload(s) from %s", len(payloads), source)
     return payloads

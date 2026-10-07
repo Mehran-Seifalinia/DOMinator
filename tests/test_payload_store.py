@@ -1,13 +1,16 @@
 """Tests for the payload store used by the confirmation step."""
 
+from asyncio import run
 from pathlib import Path
-from pytest import raises
+from pytest import MonkeyPatch, raises
 from utils.payload_store import (
     DEFAULT_PAYLOAD,
+    SOURCE_ENV,
     load_payloads,
     normalise_sink,
     parse_payloads,
     payload_for,
+    refresh_payloads,
     save_payloads,
 )
 
@@ -63,3 +66,31 @@ def test_a_broken_cache_is_ignored(tmp_path: Path) -> None:
     path = tmp_path / "payloads.json"
     path.write_text("{ not json", encoding="utf-8")
     assert load_payloads(path) == {}
+
+
+def test_refresh_from_a_local_file(tmp_path: Path) -> None:
+    source = tmp_path / "source.json"
+    source.write_text('{"innerhtml": "<b>x</b>"}', encoding="utf-8")
+    cache = tmp_path / "cache.json"
+    payloads = run(refresh_payloads(None, cache, str(source)))  # type: ignore[arg-type]
+    assert payloads == {"innerhtml": "<b>x</b>"}
+    assert load_payloads(cache) == {"innerhtml": "<b>x</b>"}
+
+
+def test_the_environment_variable_is_the_fallback(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    source = tmp_path / "source.json"
+    source.write_text('{"eval": "alert(2)"}', encoding="utf-8")
+    monkeypatch.setenv(SOURCE_ENV, str(source))
+    payloads = run(refresh_payloads(None, tmp_path / "cache.json", ""))  # type: ignore[arg-type]
+    assert payloads == {"eval": "alert(2)"}
+
+
+def test_refresh_without_a_source_keeps_the_built_ins(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.delenv(SOURCE_ENV, raising=False)
+    assert run(refresh_payloads(None, tmp_path / "cache.json", "")) == {}  # type: ignore[arg-type]
+
+
+def test_refresh_reports_a_missing_source(tmp_path: Path) -> None:
+    cache = tmp_path / "cache.json"
+    assert run(refresh_payloads(None, cache, str(tmp_path / "absent.json"))) == {}  # type: ignore[arg-type]
+    assert not cache.is_file()
