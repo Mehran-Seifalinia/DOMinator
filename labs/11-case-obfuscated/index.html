@@ -6,12 +6,10 @@
 </head>
 <body>
   <h1>11 case obfuscated</h1>
-  <p>The same sinks written with mixed case; every pattern is case insensitive.</p>
+  <p>HTML attribute names and URL schemes are case insensitive, so these are live.
+     A mixed case JavaScript property name would not be a sink at all.</p>
+  <img src="x" alt="" ONERROR="document.getElementById('sink').innerHTML = location.hash.slice(1)">
+  <a href="JaVaScRiPt:alert(1)">js uri</a>
   <div id="sink"></div>
-  <script>
-    var params = new URLSearchParams(location.search);
-    document.getElementById('sink').InNeRHTML = params.get('q') || '';
-    EvAl(params.get('code') || '1 + 1');
-  </script>
 </body>
 </html>

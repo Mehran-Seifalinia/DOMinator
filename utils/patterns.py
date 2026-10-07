@@ -21,6 +21,7 @@ DANGEROUS_JS_PATTERNS: list[Pattern] = [
     compile(r"(?i)\.innerHTML\s*="),
     compile(r"(?i)\.outerHTML\s*="),
     compile(r"(?i)\.insertAdjacentHTML\s*\("),
+    compile(r"(?i)\.srcdoc\s*="),
 ]
 
 # HTML dangerous patterns
@@ -102,6 +103,7 @@ EVENT_HANDLER_ATTRIBUTES: set[str] = {
 RISK_PATTERNS: list[tuple[Pattern, str]] = [
     (compile(r"(?i)\beval\s*\("), 'critical'),
     (compile(r"(?i)\.innerHTML\s*="), 'critical'),
+    (compile(r"(?i)\.srcdoc\s*="), 'critical'),
     (compile(r"(?i)document\.write\s*\("), 'critical'),
     (compile(r"(?i)\.outerHTML\s*="), 'critical'),
     (compile(r"(?i)\bFunction\s*\("), 'high'),

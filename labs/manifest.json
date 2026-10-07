@@ -40,8 +40,8 @@
     {
       "slug": "07-external-sink",
       "level": 3,
-      "expect_dynamic": ["innerhtml"],
-      "notes": "the sink lives in the external app.js"
+      "expect_external": ["innerhtml"],
+      "notes": "the sink lives in the external app.js, so it can only be reported by the external analysis"
     },
     {
       "slug": "08-inline-onerror",
@@ -65,9 +65,9 @@
     {
       "slug": "11-case-obfuscated",
       "level": 3,
-      "expect": ["eval"],
-      "expect_dynamic": ["innerhtml"],
-      "notes": "mixed case sinks; every pattern is case insensitive"
+      "expect": ["innerhtml", "javascript"],
+      "expect_event_handlers": ["onerror"],
+      "notes": "HTML attribute names and URL schemes are case insensitive, so ONERROR and JaVaScRiPt: are live; a mixed case JavaScript property name would not be a sink at all"
     },
     {
       "slug": "12-clean-page",

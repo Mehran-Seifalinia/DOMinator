@@ -9,6 +9,7 @@ from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
 from utils.logger import get_logger
 from utils.patterns import EVENT_HANDLER_ATTRIBUTES, get_risk_level
+from extractors.html_parser import is_inert
 from utils.analysis_result import EventHandler, AnalysisResult
 
 logger = get_logger(__name__)
@@ -72,6 +73,8 @@ class EventHandlerExtractor:
         event_handlers: Dict[str, List[EventHandler]] = {}
 
         for tag in self.soup.find_all(True):
+            if is_inert(tag):
+                continue
             line = tag.sourceline if hasattr(tag, 'sourceline') else None
             column = tag.sourcepos if hasattr(tag, 'sourcepos') else None
 

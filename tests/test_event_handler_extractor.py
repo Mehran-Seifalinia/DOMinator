@@ -41,3 +41,15 @@ def test_extract_returns_a_completed_result() -> None:
     assert result.status == "completed"
     assert result.url == "http://127.0.0.1/"
     assert sorted(result.event_handlers) == ["onclick", "onerror"]
+
+
+def test_skips_handlers_inside_inert_containers() -> None:
+    html = """
+    <html><body>
+      <template><img src="x" alt="" onerror="alert(1)"></template>
+      <noscript><img src="x" alt="" onerror="alert(2)"></noscript>
+      <div onclick="live()">live</div>
+    </body></html>
+    """
+    handlers = EventHandlerExtractor(html).extract_event_handlers()
+    assert sorted(handlers) == ["onclick"]

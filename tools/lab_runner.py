@@ -41,6 +41,7 @@ class Lab:
     query: str = ""
     expect: Tuple[str, ...] = ()
     expect_dynamic: Tuple[str, ...] = ()
+    expect_external: Tuple[str, ...] = ()
     expect_event_handlers: Tuple[str, ...] = ()
     forbid_any: Tuple[str, ...] = ()
     forbid_dynamic: Tuple[str, ...] = ()
@@ -78,6 +79,7 @@ def load_labs(path: Path) -> List[Lab]:
                 query=entry.get("query", ""),
                 expect=tuple(entry.get("expect", ())),
                 expect_dynamic=tuple(entry.get("expect_dynamic", ())),
+                expect_external=tuple(entry.get("expect_external", ())),
                 expect_event_handlers=tuple(entry.get("expect_event_handlers", ())),
                 forbid_any=tuple(entry.get("forbid_any", ())),
                 forbid_dynamic=tuple(entry.get("forbid_dynamic", ())),
@@ -101,20 +103,39 @@ def normalise(name: str) -> str:
     return "".join(character for character in head.lower() if character.isalnum())
 
 
-def collect_names(results: List[Dict[str, Any]]) -> Tuple[Set[str], Set[str], Set[str]]:
-    """Return the normalised names found anywhere, in dynamic results and in handlers."""
+@dataclass
+class Found:
+    """The normalised names a scan reported, grouped by where they came from."""
+
+    everywhere: Set[str]
+    dynamic: Set[str]
+    external: Set[str]
+    handlers: Set[str]
+
+
+def collect_names(results: List[Dict[str, Any]]) -> Found:
+    """Collect the reported names, grouped by source."""
     everywhere: Set[str] = set()
     dynamic: Set[str] = set()
+    external: Set[str] = set()
     handlers: Set[str] = set()
 
     for result in results:
-        for key in ("static_occurrences", "dynamic_occurrences", "external_script_risks"):
+        for key in (
+            "static_occurrences",
+            "dynamic_occurrences",
+            "unconfirmed_occurrences",
+            "external_script_risks",
+        ):
             for occurrence in result.get(key, []) or []:
                 name = normalise(str(occurrence.get("pattern", "")))
-                if name:
-                    everywhere.add(name)
-                    if key == "dynamic_occurrences":
-                        dynamic.add(name)
+                if not name:
+                    continue
+                everywhere.add(name)
+                if key == "dynamic_occurrences":
+                    dynamic.add(name)
+                elif key == "external_script_risks":
+                    external.add(name)
         for handler_list in (result.get("event_handlers", {}) or {}).values():
             for handler in handler_list:
                 name = normalise(str(handler.get("attribute", "")))
@@ -122,32 +143,35 @@ def collect_names(results: List[Dict[str, Any]]) -> Tuple[Set[str], Set[str], Se
                     handlers.add(name)
                     everywhere.add(name)
 
-    return everywhere, dynamic, handlers
+    return Found(everywhere=everywhere, dynamic=dynamic, external=external, handlers=handlers)
 
 
 def evaluate(lab: Lab, results: List[Dict[str, Any]]) -> Outcome:
     """Compare the scan results with the manifest of one lab."""
-    everywhere, dynamic, handlers = collect_names(results)
+    found = collect_names(results)
     missing: List[str] = []
     unexpected: List[str] = []
 
     for name in lab.expect:
-        if name not in everywhere:
+        if name not in found.everywhere:
             missing.append(name)
     for name in lab.expect_dynamic:
-        if name not in dynamic:
+        if name not in found.dynamic:
             missing.append(f"dynamic:{name}")
+    for name in lab.expect_external:
+        if name not in found.external:
+            missing.append(f"external:{name}")
     for name in lab.expect_event_handlers:
-        if name not in handlers:
+        if name not in found.handlers:
             missing.append(f"handler:{name}")
     for name in lab.forbid_any:
-        if name in everywhere:
+        if name in found.everywhere:
             unexpected.append(name)
     for name in lab.forbid_dynamic:
-        if name in dynamic:
+        if name in found.dynamic:
             unexpected.append(f"dynamic:{name}")
     if lab.expect_clean:
-        unexpected.extend(sorted(everywhere))
+        unexpected.extend(sorted(found.everywhere))
 
     status = str(results[0].get("status")) if results else "missing"
     if status != lab.expect_status:

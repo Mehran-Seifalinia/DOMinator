@@ -4,7 +4,7 @@ Provides functionality for parsing and extracting information from HTML content.
 """
 
 from typing import List, Optional, Tuple
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from utils.logger import get_logger
 from utils.patterns import EVENT_HANDLER_ATTRIBUTES
 from traceback import format_exc
@@ -17,6 +17,29 @@ MAX_HTML_SIZE = 10 * 1024 * 1024  # 10 MB
 
 # Compiled regex for suspicious protocols in attribute values
 SUSPICIOUS_PROTOCOLS = compile(r'^(javascript:|data:|vbscript:)', IGNORECASE)
+
+# Script types whose content is JavaScript. Any other type, such as
+# application/json or text/template, holds data that never executes.
+JAVASCRIPT_TYPES = frozenset({
+    '',
+    'module',
+    'text/javascript',
+    'application/javascript',
+    'application/x-javascript',
+    'application/ecmascript',
+    'text/ecmascript',
+})
+
+# Containers whose content never renders and never executes.
+INERT_CONTAINERS = frozenset({'template', 'noscript'})
+
+
+def is_inert(element: Tag) -> bool:
+    """Return True when the element sits inside a container that never runs."""
+    for parent in element.parents:
+        if getattr(parent, 'name', None) in INERT_CONTAINERS:
+            return True
+    return False
 
 class ScriptExtractor:
     """
@@ -48,6 +71,9 @@ class ScriptExtractor:
             seen: set[str] = set()
             
             for script in self.soup.find_all("script"):
+                script_type = (script.get("type") or "").strip().lower()
+                if script_type not in JAVASCRIPT_TYPES:
+                    continue
                 if script.string and script.string.strip():
                     content = script.string.strip()
                     if content in seen:
@@ -79,6 +105,8 @@ class ScriptExtractor:
         try:
             dangerous_elements = []
             for tag in self.soup.find_all(True):  # Consider limiting to common vulnerable tags for performance
+                if is_inert(tag):
+                    continue
                 line = getattr(tag, 'sourceline', None)
                 for attr, value in tag.attrs.items():
                     if not isinstance(value, str):

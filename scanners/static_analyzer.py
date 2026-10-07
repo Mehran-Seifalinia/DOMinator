@@ -7,7 +7,14 @@ from typing import List
 from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity
 from extractors.html_parser import ScriptExtractor
 from utils.logger import get_logger
-from utils.patterns import DANGEROUS_JS_PATTERNS, DANGEROUS_HTML_PATTERNS, get_risk_level, DOM_SOURCES_PATTERNS
+from utils.patterns import (
+    DANGEROUS_HTML_PATTERNS,
+    DANGEROUS_JS_PATTERNS,
+    DOM_SOURCES_PATTERNS,
+    EVENT_HANDLER_ATTRIBUTES,
+    get_risk_level,
+)
+from utils.js_source import mask_javascript
 from utils.analysis_result import AnalysisResult, Occurrence
 
 logger = get_logger(__name__)
@@ -71,8 +78,9 @@ class StaticAnalyzer:
         # Analyze inline scripts
         inline_scripts = self.extractor.extract_inline_scripts()  # returns List[Tuple[int, str]]
         for line_num, script in inline_scripts:
+            code = mask_javascript(script)
             for pattern in DANGEROUS_JS_PATTERNS:
-                for match in pattern.finditer(script):
+                for match in pattern.finditer(code):
                     unique_key = (line_num, match.start(), match.group())
                     if unique_key in seen_occurrences:
                         continue
@@ -136,6 +144,35 @@ class StaticAnalyzer:
                     self.result.add_static_occurrence(occurrence)
                     break
 
+        # Inline event handler values carry JavaScript too, and the sink usually
+        # sits inside the attribute where the HTML patterns above never look.
+        for tag, attr, value, line in dangerous_elements:
+            if attr.lower() not in EVENT_HANDLER_ATTRIBUTES:
+                continue
+            code = mask_javascript(value)
+            for pattern in DANGEROUS_JS_PATTERNS:
+                for match in pattern.finditer(code):
+                    unique_key = (line, tag, attr, match.start(), match.group())
+                    if unique_key in seen_occurrences:
+                        continue
+                    seen_occurrences.add(unique_key)
+                    risk_level_str = get_risk_level(match.group())
+                    risk_level = risk_to_enum.get(risk_level_str, RiskLevel.INNER_HTML)
+                    priority, _ = self.priority_manager.calculate_optimized_priority(
+                        methods=[risk_level],
+                        complexity=ExploitComplexity.MEDIUM
+                    )
+                    occurrence: Occurrence = {
+                        "line": line,
+                        "column": match.start(),
+                        "pattern": match.group(),
+                        "context": f"{tag} {attr}={value[:60]}",
+                        "risk_level": risk_level_str,
+                        "priority": priority,
+                        "source": "static"
+                    }
+                    self.result.add_static_occurrence(occurrence)
+
     def extract_dom_sources(self) -> List[str]:
         """
         Extract DOM sources (e.g., location.hash, location.search) from inline scripts.
@@ -147,9 +184,9 @@ class StaticAnalyzer:
         
         for item in inline_scripts:
             if isinstance(item, tuple):
-                script = item[1]
+                script = mask_javascript(item[1])
             else:
-                script = item
+                script = mask_javascript(item)
             
             for pattern in DOM_SOURCES_PATTERNS:
                 for match in pattern.finditer(script):

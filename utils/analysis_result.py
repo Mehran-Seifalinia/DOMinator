@@ -18,8 +18,9 @@ class Occurrence(TypedDict):
         context (str): Context around the occurrence
         risk_level (str): Risk level of the occurrence
         priority (float): Priority level of the occurrence
-        source (str): Source of the occurrence ('static', 'dynamic', 'external', or 'event_handler')
+        source (str): Source of the occurrence ('static', 'dynamic', 'external', 'event_handler' or 'unconfirmed')
         injected_url (Optional[str]): Full URL with injected payload (for dynamic XSS)
+        confirmed (Optional[bool]): True when the payload really executed
     """
     line: Optional[int]
     column: Optional[int]
@@ -29,6 +30,7 @@ class Occurrence(TypedDict):
     priority: float
     source: str
     injected_url: Optional[str]
+    confirmed: Optional[bool]
 
 @dataclass
 class EventHandler:
@@ -74,6 +76,7 @@ class AnalysisResult:
         """Initialize an empty analysis result."""
         self.static_occurrences: List[Occurrence] = []
         self.dynamic_occurrences: List[Occurrence] = []
+        self.unconfirmed_occurrences: List[Occurrence] = []
         self.event_handlers: Dict[str, List[EventHandler]] = {}
         self.external_script_risks: List[Occurrence] = []
         self.analysis_time: datetime = datetime.now()
@@ -87,6 +90,7 @@ class AnalysisResult:
         self.dom_sources: List[str] = []
         self._static_keys: Set[Tuple[Optional[int], str, str]] = set()
         self._dynamic_keys: Set[Tuple[Optional[int], str, str]] = set()
+        self._unconfirmed_keys: Set[Tuple[Optional[int], str, str]] = set()
         self._external_keys: Set[Tuple[Optional[int], str, str]] = set()
 
     def add_static_occurrence(self, occurrence: Occurrence) -> None:
@@ -121,7 +125,29 @@ class AnalysisResult:
         if key not in self._dynamic_keys:
             self._dynamic_keys.add(key)
             occurrence['source'] = 'dynamic'
+            occurrence['confirmed'] = True
             self.dynamic_occurrences.append(occurrence)
+
+    def add_unconfirmed_occurrence(self, occurrence: Occurrence) -> None:
+        """
+        Add a reflection that the instrumentation reported but never executed.
+
+        Unconfirmed reflections stay out of the dynamic list so they cannot
+        inflate the finding count, the severity or the priority.
+
+        Args:
+            occurrence (Occurrence): The occurrence to add
+
+        Raises:
+            ValueError: If occurrence is invalid
+        """
+        self._validate_occurrence(occurrence)
+        key = self._make_key(occurrence)
+        if key not in self._unconfirmed_keys:
+            self._unconfirmed_keys.add(key)
+            occurrence['source'] = 'unconfirmed'
+            occurrence['confirmed'] = False
+            self.unconfirmed_occurrences.append(occurrence)
 
     def add_event_handler(self, event_type: str, handler: EventHandler) -> None:
         """
@@ -172,11 +198,24 @@ class AnalysisResult:
         self.dom_sources.extend(other.dom_sources)
 
     def merge_dynamic_results(self, other: 'AnalysisResult') -> None:
-        """Merge only dynamic analysis results from another AnalysisResult."""
+        """Merge the whole dynamic result: occurrences, unconfirmed reflections,
+        event handlers and external script risks.
+
+        The dynamic analyzer produces all four, so merging only its occurrence
+        list silently dropped the event handlers and the external findings.
+        """
         if not isinstance(other, AnalysisResult):
             raise TypeError("other must be an instance of AnalysisResult")
         for occ in other.dynamic_occurrences:
             self.add_dynamic_occurrence(occ)
+        for occ in other.unconfirmed_occurrences:
+            self.add_unconfirmed_occurrence(occ)
+        for occ in other.external_script_risks:
+            self.add_external_script_risk(occ)
+        for event_type, handlers in other.event_handlers.items():
+            if event_type not in self.event_handlers:
+                self.event_handlers[event_type] = []
+            self.event_handlers[event_type].extend(handlers)
 
     def merge_from(self, other: 'AnalysisResult') -> None:
         """
@@ -190,6 +229,8 @@ class AnalysisResult:
             self.add_static_occurrence(occ)
         for occ in other.dynamic_occurrences:
             self.add_dynamic_occurrence(occ)
+        for occ in other.unconfirmed_occurrences:
+            self.add_unconfirmed_occurrence(occ)
         for event_type, handlers in other.event_handlers.items():
             if event_type not in self.event_handlers:
                 self.event_handlers[event_type] = []
@@ -244,6 +285,7 @@ class AnalysisResult:
         return {
             'static_occurrences': self.static_occurrences,
             'dynamic_occurrences': self.dynamic_occurrences,
+            'unconfirmed_occurrences': self.unconfirmed_occurrences,
             'event_handlers': {
                 event_type: [handler.to_dict() for handler in handlers]
                 for event_type, handlers in self.event_handlers.items()
@@ -261,10 +303,13 @@ class AnalysisResult:
 
     def get_all_occurrences(self) -> List[Occurrence]:
         """
-        Get all occurrences from all sources.
-        
+        Get all confirmed occurrences from all sources.
+
+        Unconfirmed reflections are deliberately excluded: they are evidence of
+        a sink, not of a working exploit.
+
         Returns:
-            List[Occurrence]: List of all occurrences
+            List[Occurrence]: List of all confirmed occurrences
         """
         return (
             self.static_occurrences +

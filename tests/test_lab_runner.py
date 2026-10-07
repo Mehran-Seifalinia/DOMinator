@@ -12,6 +12,7 @@ def make_result(**overrides: Any) -> Dict[str, Any]:
         "status": "completed",
         "static_occurrences": [],
         "dynamic_occurrences": [],
+        "unconfirmed_occurrences": [],
         "external_script_risks": [],
         "event_handlers": {},
     }
@@ -40,10 +41,27 @@ def test_collect_names_gathers_every_source() -> None:
         dynamic_occurrences=[occurrence("innerHTML")],
         event_handlers={"onerror": [{"attribute": "onerror"}]},
     )
-    everywhere, dynamic, handlers = collect_names([result])
-    assert everywhere == {"settimeout", "innerhtml", "onerror"}
-    assert dynamic == {"innerhtml"}
-    assert handlers == {"onerror"}
+    found = collect_names([result])
+    assert found.everywhere == {"settimeout", "innerhtml", "onerror"}
+    assert found.dynamic == {"innerhtml"}
+    assert found.handlers == {"onerror"}
+    assert found.external == set()
+
+
+def test_collect_names_reads_external_and_unconfirmed() -> None:
+    result = make_result(
+        external_script_risks=[occurrence("innerHTML")],
+        unconfirmed_occurrences=[occurrence("srcdoc")],
+    )
+    found = collect_names([result])
+    assert found.external == {"innerhtml"}
+    assert found.everywhere == {"innerhtml", "srcdoc"}
+    assert found.dynamic == set()
+
+
+def test_evaluate_reports_a_missing_external_finding() -> None:
+    outcome = evaluate(Lab(slug="x", expect_external=("innerhtml",)), [make_result()])
+    assert outcome.missing == ["external:innerhtml"]
 
 
 def test_evaluate_reports_a_false_negative() -> None:

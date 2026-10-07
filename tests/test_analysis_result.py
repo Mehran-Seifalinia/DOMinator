@@ -106,3 +106,42 @@ def test_elapsed_time_needs_both_timestamps() -> None:
     assert result.elapsed_time == 0.0
     result.end_time = result.start_time + timedelta(seconds=2.5)
     assert result.elapsed_time == 2.5
+
+
+def test_merge_dynamic_results_keeps_handlers_and_external_risks() -> None:
+    other = AnalysisResult()
+    other.add_dynamic_occurrence(make_occurrence(pattern="innerHTML", context="el.innerHTML = x"))
+    other.add_event_handler("onerror", EventHandler(tag="img", attribute="onerror", handler="alert(1)"))
+    other.add_external_script_risk(make_occurrence(pattern="eval(", context="eval(x)"))
+
+    result = AnalysisResult()
+    result.merge_dynamic_results(other)
+    assert len(result.dynamic_occurrences) == 1
+    assert list(result.event_handlers) == ["onerror"]
+    assert len(result.external_script_risks) == 1
+
+
+def test_unconfirmed_occurrences_stay_out_of_the_confirmed_lists() -> None:
+    result = AnalysisResult()
+    result.add_unconfirmed_occurrence(make_occurrence())
+    assert result.dynamic_occurrences == []
+    assert len(result.unconfirmed_occurrences) == 1
+    assert result.unconfirmed_occurrences[0]["source"] == "unconfirmed"
+    assert result.unconfirmed_occurrences[0]["confirmed"] is False
+    assert result.get_high_risk_occurrences() == []
+    assert result.get_all_occurrences() == []
+    assert result.to_dict()["unconfirmed_occurrences"] == result.unconfirmed_occurrences
+
+
+def test_dynamic_occurrences_are_marked_confirmed() -> None:
+    result = AnalysisResult()
+    result.add_dynamic_occurrence(make_occurrence())
+    assert result.dynamic_occurrences[0]["confirmed"] is True
+
+
+def test_merge_from_carries_unconfirmed_occurrences() -> None:
+    other = AnalysisResult()
+    other.add_unconfirmed_occurrence(make_occurrence())
+    result = AnalysisResult()
+    result.merge_from(other)
+    assert len(result.unconfirmed_occurrences) == 1

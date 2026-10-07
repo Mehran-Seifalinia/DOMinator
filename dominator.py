@@ -339,7 +339,9 @@ async def scan_url_async(
                     methods.append(RiskLevel.INNER_HTML)
                 dynamic_patterns = [occ['pattern'] for occ in result.dynamic_occurrences]
                 if any('srcdoc' in p.lower() for p in dynamic_patterns):
-                    methods.append(RiskLevel.SRCDOC)
+                    # srcdoc injects markup like innerHTML, and the scoring table
+                    # rejects a member it does not know, so reuse INNER_HTML.
+                    methods.append(RiskLevel.INNER_HTML)
 
                 if methods or result.dynamic_occurrences:
                     if not methods and result.dynamic_occurrences:
@@ -852,6 +854,18 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
                 hint = get_exploit_hint(temp_occ).split('.')[0]
                 print(f"      [EVENT] {tag}[{attr}] = \"{code[:50]}{'...' if len(code)>50 else ''}\" (line {line})")
                 print(f"         {hint}")
+
+        for occ in external:
+            pattern = occ.get("pattern", "?")
+            context = str(occ.get("context", ""))[:100]
+            print(f"      [EXTERNAL] {pattern}")
+            print(f"         Context: {context}")
+
+        for occ in res.get("unconfirmed_occurrences", []) or []:
+            pattern = occ.get("pattern", "?")
+            context = str(occ.get("context", ""))[:90]
+            print(f"      [UNCONFIRMED] {pattern} (no alert, not counted)")
+            print(f"         Context: {context}")
 
     print("\n" + "=" * 80)
 

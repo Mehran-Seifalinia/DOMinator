@@ -3,7 +3,7 @@ Dynamic Analyzer Module
 Performs dynamic analysis of HTML content to detect potential DOM XSS vulnerabilities.
 """
 
-from asyncio import gather, run
+from asyncio import create_task, gather, run, wait_for
 from typing import List, Optional
 from pathlib import Path
 from playwright.async_api import async_playwright, Page
@@ -14,12 +14,14 @@ from utils.logger import get_logger
 from utils.patterns import get_risk_level
 from utils.analysis_result import AnalysisResult, Occurrence
 from utils.browser_setup import ensure_browser_installed, BrowserNotInstalledError
-from urllib.parse import quote, urlparse, urlunparse, parse_qs, urlencode
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 logger = get_logger(__name__)
 
 INSTRUMENT_SCRIPT_PATH = Path(__file__).parent.parent / 'utils' / 'dom_instrument.js'
 # Maximum allowed HTML size in bytes to prevent memory issues
 MAX_HTML_SIZE = 10 * 1024 * 1024  # 10 MB
+# How long to wait for the alert of a verification payload
+CONFIRM_TIMEOUT_MS = 5000
 
 class DynamicAnalyzer:
     """
@@ -107,6 +109,46 @@ class DynamicAnalyzer:
             logger.error(f"Error analyzing event handlers: {str(e)}")
             self.result.set_error(f"Error analyzing event handlers: {str(e)}")
 
+    async def _confirm_payload(
+        self,
+        page: Page,
+        verify_url: str,
+        window_name: Optional[str] = None,
+    ) -> bool:
+        """Navigate to a payload URL and report whether an alert fired.
+
+        An open dialog blocks the navigation until it is dismissed, so the wait
+        runs as a task next to the navigation; waiting after it deadlocks until
+        the goto timeout and every payload looks unconfirmed. The page is parked
+        on about:blank first, because a navigation that only changes the fragment
+        does not reload the document and its script never runs again. window.name
+        survives a reload, so it is set in the page and the page is reloaded.
+        """
+        messages: List[str] = []
+
+        async def watch() -> None:
+            try:
+                dialog = await page.wait_for_event("dialog", timeout=CONFIRM_TIMEOUT_MS)
+                messages.append(dialog.message)
+                await dialog.dismiss()
+            except Exception:
+                return
+
+        watcher = create_task(watch())
+        try:
+            await page.goto("about:blank", wait_until="load", timeout=CONFIRM_TIMEOUT_MS)
+            await page.goto(verify_url, wait_until="load", timeout=CONFIRM_TIMEOUT_MS)
+            if window_name is not None:
+                await page.evaluate("(value) => { window.name = value; }", window_name)
+                await page.reload(wait_until="load", timeout=CONFIRM_TIMEOUT_MS)
+        except Exception:
+            pass
+        try:
+            await wait_for(watcher, timeout=2)
+        except Exception:
+            watcher.cancel()
+        return bool(messages)
+
     async def _instrument_and_collect(self, page: Page) -> None:
         """Collect DOM XSS vulnerability reports from instrumented page."""
         try:
@@ -124,6 +166,7 @@ class DynamicAnalyzer:
 
                 # Build exploit URL if we have a payload and a current URL
                 exploit_url = None
+                window_name_payload = None
                 if payload and self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
                     current_url = page.url
                     parsed = urlparse(current_url)
@@ -137,13 +180,11 @@ class DynamicAnalyzer:
                     
                     # Priority 1: window.name
                     if 'window.name' in source:
-                        base = current_url.split('?')[0].split('#')[0]
-                        # Build a data: URI that sets window.name and redirects
-                        # Properly escape the payload for JavaScript string
-                        safe_payload = payload.replace("'", "\\'").replace('"', '\\"')
-                        data_html = f"<script>window.name='{safe_payload}';location.href='{base}';</script>"
-                        encoded_data = quote(data_html, safe='')
-                        exploit_url = f"data:text/html,{encoded_data}"
+                        # Chrome refuses a top level data: URL, and window.name
+                        # survives a reload, so the report points at the page and
+                        # the confirmation sets window.name before reloading it.
+                        exploit_url = current_url.split('?')[0].split('#')[0]
+                        window_name_payload = payload
                    
                     # Priority 2: location.hash
                     elif 'location.hash' in source:
@@ -200,8 +241,10 @@ class DynamicAnalyzer:
                     # Build verification URL using same logic as above
                     verify_url = None
                     if exploit_url:
+                        if window_name_payload is not None:
+                            verify_url = exploit_url
                         # Replace the suggested payload with real payload in the URL
-                        if '__DOMINATOR_TEST__' in exploit_url:
+                        elif '__DOMINATOR_TEST__' in exploit_url:
                             verify_url = exploit_url.replace('__DOMINATOR_TEST__', real_payload)
                         else:
                             # Try to inject real payload into the parameter position
@@ -221,32 +264,32 @@ class DynamicAnalyzer:
                                 new_query = '&'.join(query_parts)
                                 verify_url = urlunparse(parsed._replace(query=new_query))
                             else:
-                                verify_url = urlunparse(parsed._replace(query=f"__dominator_test__={real_payload}"))
+                                # No parameter name: the payload already sits in the
+                                # fragment or in the raw query, so keep that URL.
+                                # Rebuilding the query dropped the fragment and the
+                                # payload never ran again.
+                                verify_url = exploit_url
                     
                     if verify_url:
-                        try:
-                            # Navigate to verification URL and wait for dialog
-                            await page.goto(verify_url, wait_until='networkidle')
-                            await page.wait_for_timeout(500)
-                            dialog = await page.wait_for_event('dialog', timeout=3000)
-                            await dialog.dismiss()
+                        if await self._confirm_payload(page, verify_url, window_name_payload):
                             confirmed = True
-                            # Update occurrence to critical
                             occurrence['risk_level'] = 'critical'
                             occurrence['priority'] = 90.0
                             occurrence['context'] += f' | CONFIRMED with payload: {real_payload}'
-                            # Also update exploit_url to the verification URL
                             exploit_url = verify_url
-                        except:
-                            # No alert, still keep as potential
+                        else:
                             occurrence['context'] += ' | NOT confirmed (no alert)'
-                            pass
                 
                 if payload:
                     occurrence['context'] += f' | SUGGESTED PAYLOAD: {payload}'
                 if exploit_url and not confirmed:
                     occurrence['injected_url'] = exploit_url
-                self.result.add_dynamic_occurrence(occurrence)
+                # A reflection that never executed is evidence of a sink, not of
+                # a working exploit, so it must not join the confirmed findings.
+                if confirmed:
+                    self.result.add_dynamic_occurrence(occurrence)
+                else:
+                    self.result.add_unconfirmed_occurrence(occurrence)
                 
         except Exception as e:
             logger.error(f"Error during instrumentation collection: {str(e)}")
