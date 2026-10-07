@@ -47,6 +47,30 @@ playwright install chromium
 
 ---
 
+## Testing
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest tests -q
+```
+
+The suite covers the pure modules (HTML parsing, pattern risk mapping, payload
+management, result merging, event handler extraction) and the command line,
+including a check that `--dry-run` returns without opening a connection.
+
+---
+
+## Dry run
+
+`--dry-run` prints the plan of a scan without sending any request and without
+launching a browser:
+
+```bash
+python dominator.py -u https://example.com --dry-run
+```
+
+---
+
 ## Usage
 
 ### Basic usage
@@ -58,7 +82,7 @@ python dominator.py -u https://example.com
 ### Advanced usage
 
 ```bash
-python dominator.py -u https://example.com -l 3 -t 4 -o results.json -r json --headless
+python dominator.py -u https://example.com -l 3 -t 4 -o results.json -r json -v
 ```
 
 ---
@@ -85,6 +109,7 @@ python dominator.py -u https://example.com -l 3 -t 4 -o results.json -r json --h
 | `--cookie` | Send custom cookies |
 | `--max-depth` | Set maximum crawling depth |
 | `--auto-update` | Auto-update payloads |
+| `--dry-run` | Print the scan plan and exit without sending requests or launching a browser |
 
 ---
 
@@ -95,8 +120,7 @@ DOMinator/
 ├── extractors/
 │   ├── event_handler_extractor.py
 │   ├── external_fetcher.py
-│   ├── html_parser.py
-│   └── test_html_parser.py
+│   └── html_parser.py
 ├── scanners/
 │   ├── dynamic_analyzer.py
 │   ├── static_analyzer.py
@@ -104,11 +128,24 @@ DOMinator/
 ├── utils/
 │   ├── analysis_result.py
 │   ├── browser_setup.py
+│   ├── dom_instrument.js
 │   ├── logger.py
 │   ├── patterns.py
 │   └── payloads.py
+├── tests/
+│   ├── test_analysis_result.py
+│   ├── test_cli.py
+│   ├── test_console_report.py
+│   ├── test_event_handler_extractor.py
+│   ├── test_html_parser.py
+│   ├── test_patterns.py
+│   └── test_payloads.py
+├── labs/
+│   └── dom-xss-lab/
+├── conftest.py
 ├── dominator.py
 ├── requirements.txt
+├── requirements-dev.txt
 └── README.md
 ```
 
@@ -165,6 +202,18 @@ python dominator.py -u https://example.com -o results.csv
 
 Make sure your environment can reach the target application.  
 The tool respects the `-p` option for proxy configuration.
+
+### pip install fails with Permission denied
+
+Inside a restricted Windows sandbox the managed temp directory is not writable
+and pip fails with `Permission denied` on a `pip-unpack-*` path. Point `TEMP`
+and `TMP` at a directory inside the project before installing:
+
+```powershell
+$env:TEMP = "$PWD\.tmp"
+$env:TMP  = "$PWD\.tmp"
+python -m pip install -r requirements.txt
+```
 
 ---
 

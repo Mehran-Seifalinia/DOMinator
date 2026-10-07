@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DOM XSS lab</title>
+</head>
+<body>
+  <h1>DOM XSS lab target</h1>
+
+  <div id="hash-sink"></div>
+  <div id="query-sink"></div>
+
+  <img src="missing.png" alt="" onerror="document.getElementById('handler-sink').textContent = 'handler ran'">
+  <div id="handler-sink"></div>
+
+  <a id="js-uri" href="javascript:void(0)">js uri</a>
+
+  <script src="app.js"></script>
+  <script>
+    document.getElementById('hash-sink').innerHTML = decodeURIComponent(location.hash.slice(1));
+
+    var params = new URLSearchParams(location.search);
+    document.getElementById('query-sink').innerHTML = params.get('q') || '';
+
+    eval(params.get('code') || '1 + 1');
+
+    setTimeout(function () { return undefined; }, 10);
+
+    localStorage.setItem('lab', 'visited');
+    document.cookie = 'lab=visited';
+  </script>
+</body>
+</html>

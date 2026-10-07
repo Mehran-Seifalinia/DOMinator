@@ -14,8 +14,8 @@ from scanners.dynamic_analyzer import DynamicAnalyzer
 from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplexity, AttackVector
 from utils.logger import get_logger
 from utils.analysis_result import AnalysisResult
-from argparse import ArgumentParser
-from sys import exit
+from argparse import ArgumentParser, Namespace
+from sys import exit, stderr, stdout
 from csv import DictWriter
 from collections import deque
 from typing import List, Dict, Any, Optional, Set, Tuple
@@ -23,12 +23,31 @@ from pathlib import Path
 from datetime import datetime
 from urllib.parse import urljoin, urlparse, urlunparse
 from html import escape  # For sanitizing in reports
+from re import search as re_search
 
 # Set up logger
 logger = get_logger(__name__)
 
 # Maximum allowed HTML size in bytes to prevent memory issues
 MAX_HTML_SIZE = 10 * 1024 * 1024  # 10 MB
+
+def configure_console_encoding(streams: Optional[List[Any]] = None) -> None:
+    """Make report output survive a code page that cannot encode it.
+
+    The console report and the log lines contain emoji. When stdout is a real
+    console Python writes UTF-8, but when it is redirected to a file or a pipe
+    the locale code page (for example cp1252) is used and printing raises
+    UnicodeEncodeError, which loses the whole report and the output file.
+    Replacing unencodable characters keeps the report usable.
+    """
+    for stream in streams if streams is not None else (stdout, stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="replace")
+        except (ValueError, OSError):
+            continue
 
 def normalize_url(url: str) -> str:
     """Remove fragment (hash) from URL for deduplication."""
@@ -61,6 +80,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument('--cookie', type=str, help='Send custom cookies')
     parser.add_argument('--max-depth', type=int, default=1, help='Set maximum crawling depth (currently basic implementation)')
     parser.add_argument('--auto-update', action='store_true', help='Automatically check and download the latest payloads (placeholder)')
+    parser.add_argument('--dry-run', action='store_true', help='Print the scan plan and exit without sending requests or launching a browser')
     return parser.parse_args()
 
 def validate_timeout(timeout: int) -> int:
@@ -673,17 +693,18 @@ async def write_results_to_html(results: List[Dict[str, Any]], output_file: str)
         f.write(full_html)
 
 def print_console_report(results: List[Dict[str, Any]]) -> None:
-    # ANSI color codes
+    # ANSI color codes. RED must be bound in every branch: the exploit URL line
+    # is printed whether or not the output is a terminal.
     try:
-        import sys
-        if sys.stdout.isatty():
-            GREEN = '\033[92m'
-            RED = '\033[91m'
-            RESET = '\033[0m'
-        else:
-            GREEN = RESET = ''
-    except:
-        GREEN = RESET = ''
+        colored = stdout.isatty()
+    except (ValueError, OSError):
+        colored = False
+    if colored:
+        GREEN = '\033[92m'
+        RED = '\033[91m'
+        RESET = '\033[0m'
+    else:
+        GREEN = RED = RESET = ''
 
     def get_exploit_hint(occ: dict) -> str:
         pattern = occ.get("pattern", "")
@@ -758,8 +779,7 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
             if '(' in p:
                 base = p.split('(')[0].strip()
             else:
-                import re
-                match = re.search(r'[a-z_][a-z0-9_]*', p)
+                match = re_search(r'[a-z_][a-z0-9_]*', p)
                 if match:
                     base = match.group(0)
                 else:
@@ -794,8 +814,7 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
             payload = ""
             context = occ.get("context", "")
             if "Payload:" in context and "triggered alert" in context:
-                import re
-                match = re.search(r'Payload:\s*(.+?)\s+triggered alert', context)
+                match = re_search(r'Payload:\s*(.+?)\s+triggered alert', context)
                 if match:
                     payload = match.group(1)
             injection = "hash" if "hash" in pattern.lower() else "query" if "query" in pattern.lower() else "URL"
@@ -837,12 +856,29 @@ def print_console_report(results: List[Dict[str, Any]]) -> None:
 
     print("\n" + "=" * 80)
 
+def print_dry_run(args: Namespace) -> None:
+    """Print the planned scan without sending requests or launching a browser."""
+    print("Dry run: no HTTP request is sent and no browser is launched.")
+    print(f"Targets ({len(args.url)}):")
+    for url in args.url:
+        print(f"  - {url}")
+    print(f"Analysis level   : {args.level}")
+    print(f"Threads          : {args.threads}")
+    print(f"Timeout (s)      : {args.timeout}")
+    print(f"Max crawl depth  : {args.max_depth}")
+    print(f"Report format    : {args.report_format}")
+    print(f"Output file      : {args.output if args.output else '(none)'}")
+    print(f"Proxy            : {args.proxy if args.proxy else '(none)'}")
+    print(f"External scripts : {'skipped' if args.no_external else 'analyzed'}")
+    print(f"Headless         : {not args.visible}")
+
 async def main() -> None:
     """
     Main entry point for the application.
     """
     args = parse_args()
     headless_mode = not args.visible
+    configure_console_encoding()
     from logging import WARNING, DEBUG, INFO, getLogger, root
     from utils.logger import set_console_level
     if args.quiet:
@@ -880,6 +916,11 @@ async def main() -> None:
         exit("Error: No URL(s) provided.")
 
     args.timeout = validate_timeout(args.timeout)
+
+    if args.dry_run:
+        print_dry_run(args)
+        return
+
     results_queue = Queue()
     
     semaphore = Semaphore(args.threads)
