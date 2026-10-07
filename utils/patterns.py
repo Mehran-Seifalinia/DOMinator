@@ -126,3 +126,24 @@ def get_risk_level(pattern: str, _complexity: int = 1) -> str:
         return 'unknown'
     except Exception:
         return 'unknown'
+
+
+# Risk level per sink name, for the reports that only carry the bare name, such
+# as the external script analysis and the browser instrumentation.
+SINK_RISK_LEVELS: dict[str, str] = {
+    'eval': 'critical',
+    'function': 'critical',
+    'document.write': 'critical',
+    'innerhtml': 'critical',
+    'outerhtml': 'high',
+    'insertadjacenthtml': 'high',
+    'srcdoc': 'high',
+    'settimeout': 'medium',
+    'setinterval': 'medium',
+    'location.href': 'medium',
+}
+
+
+def get_sink_risk_level(sink: str) -> str:
+    """Return the risk level of a sink that is only known by name."""
+    return SINK_RISK_LEVELS.get(sink.strip().lower(), 'unknown')

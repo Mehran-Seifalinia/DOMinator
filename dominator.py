@@ -15,8 +15,10 @@ from scanners.priority_manager import PriorityManager, RiskLevel, ExploitComplex
 from utils.logger import get_logger
 from utils.analysis_result import AnalysisResult
 from utils.console import SYMBOLS, severity_tag
+from utils.payload_store import SOURCE_ENV, cache_path, load_payloads, refresh_payloads
 from argparse import ArgumentParser, Namespace
 from sys import exit, stderr, stdout
+from os import environ
 from csv import DictWriter
 from collections import deque
 from typing import List, Dict, Any, Optional, Set, Tuple
@@ -31,6 +33,10 @@ logger = get_logger(__name__)
 
 # Maximum allowed HTML size in bytes to prevent memory issues
 MAX_HTML_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# The payload cache and the lab fixtures live next to this file, not next to
+# whatever directory the scan was started from.
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 def configure_console_encoding(streams: Optional[List[Any]] = None) -> None:
     """Make report output survive a code page that cannot encode it.
@@ -65,9 +71,9 @@ def parse_args() -> ArgumentParser:
     parser = ArgumentParser(description="DOM XSS Scanner Tool")
     parser.add_argument('-u', '--url', help='Target URL(s)', nargs='+')
     parser.add_argument('-t', '--threads', type=int, default=1, help='Number of threads for parallel processing')
-    parser.add_argument('-f', '--force', action='store_true', help='Force continue even if site is not reachable')
+    parser.add_argument('-f', '--force', action='store_true', help='Force continue: exit 0 even when no target was reachable')
     parser.add_argument('-o', '--output', type=str, help='Output file for saving results')
-    parser.add_argument('-l', '--level', type=int, choices=[1, 2, 3, 4], default=2, help='Set analysis level')
+    parser.add_argument('-l', '--level', type=int, choices=[1, 2, 3, 4], default=2, help='Analysis level: 1 static only, 2 add dynamic analysis, 3 add handlers and external scripts, 4 add a second payload attempt')
     parser.add_argument('-to', '--timeout', type=int, default=10, help='Set timeout (in seconds) for HTTP requests')
     parser.add_argument('-L', '--list-url', type=str, help='Path to a file containing a list of URLs to test')
     parser.add_argument('-r', '--report-format', type=str, choices=['json', 'html', 'csv'], default='json', help='Choose report format')
@@ -80,7 +86,7 @@ def parse_args() -> ArgumentParser:
     parser.add_argument('--user-agent', type=str, help='Set a custom User-Agent')
     parser.add_argument('--cookie', type=str, help='Send custom cookies')
     parser.add_argument('--max-depth', type=int, default=1, help='Set maximum crawling depth (currently basic implementation)')
-    parser.add_argument('--auto-update', action='store_true', help='Automatically check and download the latest payloads (placeholder)')
+    parser.add_argument('--auto-update', action='store_true', help=f'Refresh the payload list from the URL in {SOURCE_ENV} before scanning')
     parser.add_argument('--dry-run', action='store_true', help='Print the scan plan and exit without sending requests or launching a browser')
     return parser.parse_args()
 
@@ -213,9 +219,9 @@ async def scan_url_async(
     user_agent: Optional[str],
     cookie: Optional[str],
     max_depth: int,
-    auto_update: bool,
     session: ClientSession,
-    shared_browser = None
+    shared_browser = None,
+    payload_overrides: Optional[Dict[str, str]] = None
 ) -> None:
     """
     Scan a single URL for DOM XSS vulnerabilities, with optional crawling.
@@ -233,8 +239,9 @@ async def scan_url_async(
         user_agent (Optional[str]): User-Agent
         cookie (Optional[str]): Cookies
         max_depth (int): Crawl depth
-        auto_update (bool): Auto-update payloads (placeholder)
         session (ClientSession): aiohttp session
+        shared_browser: Browser instance reused by every target
+        payload_overrides (Optional[Dict[str, str]]): Payload per sink, refreshed by --auto-update
     """
     try:        
         if blacklist:
@@ -247,9 +254,6 @@ async def scan_url_async(
                 if target_key == bl_key:
                     logger.info(f"Skipping blacklisted URL: {url}")
                     return
-
-        if auto_update:
-            logger.info("Auto-update payloads: Placeholder - implement fetching latest patterns.")
 
         logger.info(f"{SYMBOLS['start']} DOMinator started scanning: {url}")
 
@@ -313,7 +317,7 @@ async def scan_url_async(
                     external_urls=list(external_urls),
                     headless=headless,
                     user_agent=user_agent,
-                    payloads=[],
+                    payload_overrides=payload_overrides,
                     sink_types=sink_patterns,
                     dom_sources=result.dom_sources,
                     timeout=timeout,
@@ -884,6 +888,8 @@ def print_dry_run(args: Namespace) -> None:
     print(f"Proxy            : {args.proxy if args.proxy else '(none)'}")
     print(f"External scripts : {'skipped' if args.no_external else 'analyzed'}")
     print(f"Headless         : {not args.visible}")
+    print(f"Payload source   : {environ.get(SOURCE_ENV) or '(built in)'}")
+    print(f"Auto update      : {args.auto_update}")
 
 async def main() -> None:
     """
@@ -944,12 +950,22 @@ async def main() -> None:
         session_kwargs["proxy"] = args.proxy
 
     async with ClientSession(**session_kwargs) as session:
-        from playwright.async_api import async_playwright
-        playwright = await async_playwright().start()
-        shared_browser = await playwright.chromium.launch(
-            headless=headless_mode,
-            args=['--no-sandbox'] if not headless_mode else ['--sandbox']
-        )
+        if args.auto_update:
+            payload_overrides = await refresh_payloads(session, cache_path(PROJECT_ROOT))
+        else:
+            payload_overrides = load_payloads(cache_path(PROJECT_ROOT))
+
+        playwright = None
+        shared_browser = None
+        if args.level >= 2:
+            from playwright.async_api import async_playwright
+            playwright = await async_playwright().start()
+            shared_browser = await playwright.chromium.launch(
+                headless=headless_mode,
+                args=['--no-sandbox'] if not headless_mode else ['--sandbox']
+            )
+        else:
+            logger.info(f"{SYMBOLS['start']} Analysis level 1: static analysis only, no browser")
         try:
             async def limited_scan_url(url):
                 async with semaphore:
@@ -958,14 +974,17 @@ async def main() -> None:
                         args.proxy, args.verbose, args.blacklist,
                         args.no_external, headless_mode,
                         args.user_agent, args.cookie,
-                        args.max_depth, args.auto_update,
-                        session, shared_browser=shared_browser
+                        args.max_depth,
+                        session, shared_browser=shared_browser,
+                        payload_overrides=payload_overrides
                     )
             tasks = [limited_scan_url(url) for url in args.url]
             await gather(*tasks)
         finally:
-            await shared_browser.close()
-            await playwright.stop()
+            if shared_browser is not None:
+                await shared_browser.close()
+            if playwright is not None:
+                await playwright.stop()
 
     results = []
     while not results_queue.empty():
@@ -990,6 +1009,10 @@ async def main() -> None:
             print(f"Results written to {args.output} in HTML format")
     else:
         print("\nTip: Use -o <filename> to save results to a file.")
+
+    if results and not args.force and all(result.get("status") == "error" for result in results):
+        print(f"\n{SYMBOLS['error']} No target was reachable. Use -f/--force to accept this and exit 0.")
+        exit(3)
 
 if __name__ == "__main__":
     run(main())

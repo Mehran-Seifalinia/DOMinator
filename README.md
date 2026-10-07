@@ -124,9 +124,9 @@ python dominator.py -u https://example.com -l 3 -t 4 -o results.json -r json -v
 |---|---|
 | `-u, --url` | Target URL(s) to scan |
 | `-t, --threads` | Number of threads for parallel processing |
-| `-f, --force` | Force continue even if the site is not reachable |
+| `-f, --force` | Force continue: exit 0 even when no target was reachable |
 | `-o, --output` | Output file for saving results |
-| `-l, --level` | Set analysis level (1-4) |
+| `-l, --level` | Analysis level: 1 static only, 2 add dynamic, 3 add handlers and external scripts, 4 add a second payload attempt |
 | `-to, --timeout` | Set timeout for HTTP requests |
 | `-L, --list-url` | Path to a file containing a list of URLs |
 | `-r, --report-format` | Report format (`json`, `html`, `csv`) |
@@ -139,7 +139,7 @@ python dominator.py -u https://example.com -l 3 -t 4 -o results.json -r json -v
 | `--user-agent` | Set custom User-Agent |
 | `--cookie` | Send custom cookies |
 | `--max-depth` | Set maximum crawling depth |
-| `--auto-update` | Auto-update payloads |
+| `--auto-update` | Refresh the payload list from the URL in `DOMINATOR_PAYLOAD_SOURCE` before scanning |
 | `--dry-run` | Print the scan plan and exit without sending requests or launching a browser |
 
 ---
@@ -194,17 +194,15 @@ DOMinator/
 
 ## Analysis Levels
 
-1. **Basic**  
-   Quick scan for obvious vulnerabilities
+| Level | What it does |
+|---|---|
+| 1 | Static analysis only: fetches the page and matches the sink and source patterns, no browser |
+| 2 | Adds the dynamic analysis: installs the browser instrumentation and confirms a finding with a real payload |
+| 3 | Adds inline event handler extraction and the analysis of external scripts (the default) |
+| 4 | Adds a second payload variant when the first one does not fire |
 
-2. **Standard**  
-   Comprehensive analysis with moderate depth
-
-3. **Deep**  
-   In-depth analysis with extended coverage
-
-4. **Expert**  
-   Maximum depth with advanced techniques
+Level 1 is the fast path: it starts no browser at all, so it also works where
+Playwright cannot run.
 
 ---
 

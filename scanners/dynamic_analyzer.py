@@ -4,14 +4,15 @@ Performs dynamic analysis of HTML content to detect potential DOM XSS vulnerabil
 """
 
 from asyncio import create_task, gather, run, wait_for
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pathlib import Path
 from playwright.async_api import async_playwright, Page
 from extractors.event_handler_extractor import EventHandlerExtractor
 from extractors.external_fetcher import ExternalFetcher
 from scanners.priority_manager import PriorityManager
 from utils.logger import get_logger
-from utils.patterns import get_risk_level
+from utils.patterns import get_risk_level, get_sink_risk_level
+from utils.payload_store import payload_for
 from utils.analysis_result import AnalysisResult, Occurrence
 from utils.browser_setup import ensure_browser_installed, BrowserNotInstalledError
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
@@ -38,7 +39,7 @@ class DynamicAnalyzer:
         headless: bool = True, 
         user_agent: Optional[str] = None,
         url: Optional[str] = None,
-        payloads: Optional[List[str]] = None,
+        payload_overrides: Optional[Dict[str, str]] = None,
         sink_types: Optional[List[str]] = None,
         dom_sources: Optional[List[str]] = None,
         timeout: int = 10,
@@ -56,7 +57,7 @@ class DynamicAnalyzer:
             headless (bool): Whether to run browser in headless mode
             user_agent (Optional[str]): Custom user agent string
             url (Optional[str]): Original URL of the page
-            payloads (Optional[List[str]]): List of XSS payloads to inject
+            payload_overrides (Optional[Dict[str, str]]): Refreshed payloads per sink
             sink_types (Optional[List[str]]): List of sink types for payload filtering
             dom_sources (Optional[List[str]]): List of DOM sources to guide injection points
             timeout (int): Navigation timeout in seconds
@@ -79,7 +80,7 @@ class DynamicAnalyzer:
         self.priority_manager = PriorityManager()
         self.result = AnalysisResult()
         self.url = url
-        self.payloads = payloads if payloads else []   # store payloads
+        self.payload_overrides = payload_overrides if payload_overrides else {}
         self.sink_types = sink_types if sink_types else []
         self.dom_sources = dom_sources if dom_sources else []
         self.timeout = timeout
@@ -96,6 +97,9 @@ class DynamicAnalyzer:
         This method uses the EventHandlerExtractor to identify and analyze
         event handlers in the HTML content that could be used in DOM XSS attacks.
         """
+        if self.level < 3:
+            logger.debug("Skipping event handler analysis at level %d", self.level)
+            return
         try:
             extractor = EventHandlerExtractor(self.html_content)
             event_handlers = extractor.extract_event_handlers()
@@ -234,9 +238,7 @@ class DynamicAnalyzer:
                 confirmed = False
                 if payload and self.url and (self.url.startswith('http://') or self.url.startswith('https://')):
                     # Choose appropriate real payload
-                    real_payload = '<img src=x onerror=alert(1)>'
-                    if 'eval' in sink or 'setTimeout' in sink or 'setInterval' in sink or 'Function' in sink:
-                        real_payload = 'alert(1)'
+                    real_payload = payload_for(sink, 0, self.payload_overrides)
                     
                     # Build verification URL using same logic as above
                     verify_url = None
@@ -271,12 +273,22 @@ class DynamicAnalyzer:
                                 verify_url = exploit_url
                     
                     if verify_url:
-                        if await self._confirm_payload(page, verify_url, window_name_payload):
-                            confirmed = True
+                        confirmed_url = verify_url
+                        confirmed = await self._confirm_payload(page, verify_url, window_name_payload)
+                        if not confirmed and self.level >= 4 and real_payload in verify_url:
+                            # Level 4 retries once with the second payload variant.
+                            fallback = payload_for(sink, 1, self.payload_overrides)
+                            retry_url = verify_url.replace(real_payload, fallback)
+                            retry_name = fallback if window_name_payload is not None else None
+                            if await self._confirm_payload(page, retry_url, retry_name):
+                                confirmed = True
+                                confirmed_url = retry_url
+                                real_payload = fallback
+                        if confirmed:
                             occurrence['risk_level'] = 'critical'
                             occurrence['priority'] = 90.0
                             occurrence['context'] += f' | CONFIRMED with payload: {real_payload}'
-                            exploit_url = verify_url
+                            exploit_url = confirmed_url
                         else:
                             occurrence['context'] += ' | NOT confirmed (no alert)'
                 
@@ -362,6 +374,9 @@ class DynamicAnalyzer:
         This method fetches external JavaScript files and analyzes them for
         potential DOM XSS vulnerabilities.
         """
+        if self.level < 3:
+            logger.debug("Skipping external script analysis at level %d", self.level)
+            return
         try:
             fetcher = ExternalFetcher(
                 urls=self.external_urls,
@@ -373,16 +388,17 @@ class DynamicAnalyzer:
             
             analysis_results = fetcher.get_analysis_results()
             for res in analysis_results:
-                # Aggregate risks from event_listeners, risky_functions, sources, sinks
-                risks = res.event_listeners + res.risky_functions + res.sources + res.sinks
-                for risk in set(risks):  # Unique risks
+                # Only sinks are findings. Reporting the source calls and the
+                # event names of a file as risks buried the sinks in noise.
+                for sink in sorted(set(res.sinks)):
+                    risk_level = get_sink_risk_level(sink)
                     occurrence: Occurrence = {
                         "line": None,
                         "column": None,
-                        "pattern": risk,
-                        "context": f"From {res.url}: {risk}",
-                        "risk_level": get_risk_level(risk),
-                        "priority": self.priority_manager.get_priority_from_risk_level(get_risk_level(risk)),
+                        "pattern": sink,
+                        "context": f"{sink} in {res.url.rsplit('/', 1)[-1]}",
+                        "risk_level": risk_level,
+                        "priority": self.priority_manager.get_priority_from_risk_level(risk_level),
                         "source": "external"
                     }
                     self.result.add_external_script_risk(occurrence)
@@ -530,11 +546,13 @@ class DynamicAnalyzer:
         logger.debug("Starting dynamic analysis...")
     
         try:
-            await gather(
+            tasks = [
                 self.analyze_event_handlers(),
                 self.fetch_and_analyze_external_scripts(),
-                self.execute_in_browser()
-            )
+            ]
+            if self.level >= 2:
+                tasks.append(self.execute_in_browser())
+            await gather(*tasks)
     
             logger.debug("Dynamic analysis completed successfully")
             self.result.set_completed()

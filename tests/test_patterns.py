@@ -6,6 +6,7 @@ from utils.patterns import (
     DOM_SOURCES_PATTERNS,
     EVENT_HANDLER_ATTRIBUTES,
     get_risk_level,
+    get_sink_risk_level,
 )
 
 
@@ -45,3 +46,11 @@ def test_pattern_tables_are_populated() -> None:
     assert DANGEROUS_JS_PATTERNS
     assert DANGEROUS_HTML_PATTERNS
     assert DOM_SOURCES_PATTERNS
+
+
+def test_sink_risk_levels() -> None:
+    assert get_sink_risk_level("eval") == "critical"
+    assert get_sink_risk_level("innerHTML") == "critical"
+    assert get_sink_risk_level("srcdoc") == "high"
+    assert get_sink_risk_level("setTimeout") == "medium"
+    assert get_sink_risk_level("nothing") == "unknown"
