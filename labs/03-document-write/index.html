@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>03 document.write</title>
+</head>
+<body>
+  <h1>03 document.write</h1>
+  <p>The fragment is written straight into the document stream.</p>
+  <script>
+    document.write(decodeURIComponent(location.hash.slice(1)));
+  </script>
+</body>
+</html>

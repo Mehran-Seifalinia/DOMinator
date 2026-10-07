@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>15 comment and string only</title>
+</head>
+<body>
+  <h1>15 comment and string only</h1>
+  <p>Every dangerous pattern here is inert: a comment or a string literal.</p>
+  <script>
+    // eval(location.hash) would be dangerous, but this line only mentions it.
+    /*
+      document.write(location.search);
+      element.innerHTML = payload;
+    */
+    var note = "javascript:alert(1) is a payload string, never assigned";
+    var stub = 'document.write(';
+    console.log(note, stub);
+  </script>
+</body>
+</html>

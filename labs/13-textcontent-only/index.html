@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>13 textContent only</title>
+</head>
+<body>
+  <h1>13 textContent only</h1>
+  <p>The query string reaches textContent, which never parses markup.</p>
+  <div id="sink"></div>
+  <script>
+    var params = new URLSearchParams(location.search);
+    document.getElementById('sink').textContent = params.get('q') || '';
+    var fragment = location.hash.slice(1);
+    document.title = fragment || document.title;
+  </script>
+</body>
+</html>

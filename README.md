@@ -60,6 +60,37 @@ including a check that `--dry-run` returns without opening a connection.
 
 ---
 
+## Lab suite
+
+`labs/` holds one fixture per detection scenario plus `labs/manifest.json`, the
+ground truth of every fixture. `tools/lab_runner.py` serves them, scans them and
+scores the outcome:
+
+```bash
+python tools/lab_runner.py                     # scan every lab and print a scored row
+python tools/lab_runner.py --reuse             # re-score the saved scans, no browser
+python tools/lab_runner.py --only 15-comment-only
+```
+
+A row is `PASS` only when every expected pattern appears (no false negative) and
+no forbidden pattern appears (no false positive). The raw JSON and the log of
+every scan stay in `.tmp/lab-results/`.
+
+## Command line matrix
+
+`tools/cli_matrix.py` exercises every command line parameter:
+
+```bash
+python tools/cli_matrix.py --tier plan       # parse and plan cases, no browser
+python tools/cli_matrix.py --tier behavior   # real scans against the lab target
+python tools/cli_matrix.py --dry-run         # list the cases only
+```
+
+Both runners need full access on Windows: Playwright opens named pipes that the
+DSH sandbox blocks.
+
+---
+
 ## Dry run
 
 `--dry-run` prints the plan of a scan without sending any request and without
@@ -135,13 +166,23 @@ DOMinator/
 ├── tests/
 │   ├── test_analysis_result.py
 │   ├── test_cli.py
+│   ├── test_cli_matrix.py
+│   ├── test_console.py
 │   ├── test_console_report.py
 │   ├── test_event_handler_extractor.py
 │   ├── test_html_parser.py
+│   ├── test_lab_runner.py
+│   ├── test_lab_server.py
 │   ├── test_patterns.py
 │   └── test_payloads.py
 ├── labs/
-│   └── dom-xss-lab/
+│   ├── manifest.json
+│   ├── dom-xss-lab/
+│   └── 01-hash-innerhtml/ ... 21-slow-response/
+├── tools/
+│   ├── cli_matrix.py
+│   ├── lab_runner.py
+│   └── lab_server.py
 ├── conftest.py
 ├── dominator.py
 ├── requirements.txt

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>09 iframe srcdoc</title>
+</head>
+<body>
+  <h1>09 iframe srcdoc</h1>
+  <p>srcdoc is a DOM XSS sink: the query string becomes a document.</p>
+  <iframe id="frame"></iframe>
+  <script>
+    var params = new URLSearchParams(location.search);
+    document.getElementById('frame').srcdoc = params.get('q') || '';
+  </script>
+</body>
+</html>

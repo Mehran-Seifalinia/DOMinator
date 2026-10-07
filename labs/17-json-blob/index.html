@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>17 json blob</title>
+</head>
+<body>
+  <h1>17 json blob</h1>
+  <p>The dangerous looking text is data inside a JSON script block.</p>
+  <script type="application/json" id="state">
+  {
+    "command": "eval(userInput)",
+    "link": "javascript:alert(1)",
+    "html": ".innerHTML = value",
+    "write": "document.write(payload)"
+  }
+  </script>
+  <script>
+    var state = JSON.parse(document.getElementById('state').textContent);
+    document.title = state.link ? 'loaded' : 'empty';
+  </script>
+</body>
+</html>

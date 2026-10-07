@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>20 crawl third page</title>
+</head>
+<body>
+  <h1>20 crawl third page</h1>
+  <div id="sink"></div>
+  <script>
+    document.getElementById('sink').innerHTML = decodeURIComponent(location.hash.slice(1));
+  </script>
+</body>
+</html>

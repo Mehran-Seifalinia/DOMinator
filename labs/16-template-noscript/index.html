@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>16 template and noscript</title>
+</head>
+<body>
+  <h1>16 template and noscript</h1>
+  <p>These handlers never run: template content is inert and scripting is on.</p>
+  <template id="row">
+    <img src="x" alt="" onerror="alert(1)">
+    <div onclick="alert(2)">click</div>
+  </template>
+  <noscript>
+    <img src="x" alt="" onerror="alert(3)">
+  </noscript>
+</body>
+</html>

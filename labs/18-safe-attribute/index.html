@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>18 safe attributes</title>
+</head>
+<body>
+  <h1>18 safe attributes</h1>
+  <p>Attribute values mention handler syntax but nothing is executable.</p>
+  <a href="https://example.com/path?q=1">safe link</a>
+  <a href="mailto:someone@example.com">mail</a>
+  <div data-config='{"mode":"safe"}'>data attribute</div>
+  <img src="logo.png" alt="logo">
+  <input type="text" value="onerror=alert(1)" placeholder="onclick=1">
+  <p>Text that mentions onmouseover=alert(1) is not an attribute.</p>
+</body>
+</html>

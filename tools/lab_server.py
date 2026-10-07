@@ -12,9 +12,12 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from json import dumps, loads
 from pathlib import Path
 from threading import Lock, Thread
+from time import sleep
 from typing import Any, Dict, Iterator, List, Optional
+from urllib.parse import parse_qs, urlparse
 
 _WRITE_LOCK = Lock()
+MAX_DELAY_SECONDS = 30.0
 
 
 def read_records(path: Path) -> List[Dict[str, Any]]:
@@ -33,6 +36,17 @@ class RecordingHandler(SimpleHTTPRequestHandler):
 
     record_file: Optional[Path] = None
 
+    def request_delay(self) -> float:
+        """Return the ?delay= seconds for this request, capped for safety."""
+        values = parse_qs(urlparse(self.path).query).get("delay") or []
+        if not values:
+            return 0.0
+        try:
+            seconds = float(values[0])
+        except ValueError:
+            return 0.0
+        return max(0.0, min(seconds, MAX_DELAY_SECONDS))
+
     def do_GET(self) -> None:  # noqa: N802 - the base class fixes this name
         if self.record_file is not None:
             entry = {
@@ -45,6 +59,9 @@ class RecordingHandler(SimpleHTTPRequestHandler):
             with _WRITE_LOCK:
                 with self.record_file.open("a", encoding="utf-8") as handle:
                     handle.write(line)
+        delay = self.request_delay()
+        if delay:
+            sleep(delay)
         super().do_GET()
 
     def log_message(self, format: str, *args: Any) -> None:

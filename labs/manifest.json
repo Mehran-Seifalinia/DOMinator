@@ -1,0 +1,138 @@
+{
+  "comment": "Ground truth for the lab fixtures. Names are normalised to lowercase letters and digits, so innerHTML, .innerHTML = and innerHTML( all match innerhtml.",
+  "labs": [
+    {
+      "slug": "01-hash-innerhtml",
+      "level": 3,
+      "expect_dynamic": ["innerhtml"],
+      "notes": "location.hash flows into innerHTML"
+    },
+    {
+      "slug": "02-search-innerhtml",
+      "level": 3,
+      "expect_dynamic": ["innerhtml"],
+      "notes": "location.search flows into innerHTML through URLSearchParams"
+    },
+    {
+      "slug": "03-document-write",
+      "level": 3,
+      "expect_dynamic": ["documentwrite"],
+      "notes": "location.hash flows into document.write"
+    },
+    {
+      "slug": "04-eval-hash",
+      "level": 3,
+      "expect_dynamic": ["eval"],
+      "notes": "location.hash runs through eval"
+    },
+    {
+      "slug": "05-timeout-string",
+      "level": 3,
+      "expect": ["settimeout"],
+      "notes": "location.hash is passed to setTimeout as a string"
+    },
+    {
+      "slug": "06-window-name-sink",
+      "level": 3,
+      "expect_dynamic": ["insertadjacenthtml"],
+      "notes": "window.name flows into insertAdjacentHTML"
+    },
+    {
+      "slug": "07-external-sink",
+      "level": 3,
+      "expect_dynamic": ["innerhtml"],
+      "notes": "the sink lives in the external app.js"
+    },
+    {
+      "slug": "08-inline-onerror",
+      "level": 3,
+      "expect": ["innerhtml"],
+      "expect_event_handlers": ["onerror"],
+      "notes": "inline onerror carries an innerHTML sink fed by location.hash"
+    },
+    {
+      "slug": "09-iframe-srcdoc",
+      "level": 3,
+      "expect": ["srcdoc"],
+      "notes": "srcdoc is a DOM XSS sink and must be reported"
+    },
+    {
+      "slug": "10-function-constructor",
+      "level": 3,
+      "expect": ["function"],
+      "notes": "the Function constructor compiles location.hash"
+    },
+    {
+      "slug": "11-case-obfuscated",
+      "level": 3,
+      "expect": ["eval"],
+      "expect_dynamic": ["innerhtml"],
+      "notes": "mixed case sinks; every pattern is case insensitive"
+    },
+    {
+      "slug": "12-clean-page",
+      "level": 3,
+      "expect_clean": true,
+      "notes": "no script, no source, no sink"
+    },
+    {
+      "slug": "13-textcontent-only",
+      "level": 3,
+      "expect_clean": true,
+      "notes": "textContent never parses markup"
+    },
+    {
+      "slug": "14-sanitized-dompurify",
+      "level": 3,
+      "expect": ["innerhtml"],
+      "forbid_dynamic": ["innerhtml"],
+      "notes": "the sink is reachable but the sanitizer escapes the input, so it must not be exploited"
+    },
+    {
+      "slug": "15-comment-only",
+      "level": 3,
+      "expect_clean": true,
+      "notes": "every dangerous pattern is inside a comment or a string literal"
+    },
+    {
+      "slug": "16-template-noscript",
+      "level": 3,
+      "expect_clean": true,
+      "notes": "template content is inert and scripting is enabled, so noscript never renders"
+    },
+    {
+      "slug": "17-json-blob",
+      "level": 3,
+      "expect_clean": true,
+      "notes": "the dangerous looking text is data in an application/json block"
+    },
+    {
+      "slug": "18-safe-attribute",
+      "level": 3,
+      "expect_clean": true,
+      "notes": "handler syntax appears only inside literal attribute values and text"
+    },
+    {
+      "slug": "19-many-handlers",
+      "level": 3,
+      "expect_event_handlers": ["onmouseover"],
+      "notes": "105 inline handlers, past the warning threshold"
+    },
+    {
+      "slug": "20-crawl-and-broken-links",
+      "level": 1,
+      "extra_args": ["--max-depth", "3"],
+      "expect": ["eval", "innerhtml"],
+      "notes": "entry page links to page2, page3 and a missing page"
+    },
+    {
+      "slug": "21-slow-response",
+      "level": 1,
+      "query": "?delay=5",
+      "extra_args": ["-to", "1"],
+      "expect_status": "error",
+      "expect_clean": true,
+      "notes": "the server answers after five seconds while the timeout is one second"
+    }
+  ]
+}

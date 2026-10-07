@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>01 hash to innerHTML</title>
+</head>
+<body>
+  <h1>01 hash to innerHTML</h1>
+  <p>The classic source to sink flow: the fragment reaches innerHTML.</p>
+  <div id="sink"></div>
+  <script>
+    document.getElementById('sink').innerHTML = decodeURIComponent(location.hash.slice(1));
+  </script>
+</body>
+</html>

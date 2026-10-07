@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>04 eval from hash</title>
+</head>
+<body>
+  <h1>04 eval from hash</h1>
+  <p>The fragment is executed as JavaScript.</p>
+  <script>
+    eval(decodeURIComponent(location.hash.slice(1)));
+  </script>
+</body>
+</html>

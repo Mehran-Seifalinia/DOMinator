@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>14 sanitized sink</title>
+</head>
+<body>
+  <h1>14 sanitized sink</h1>
+  <p>The sink exists, but a sanitizer escapes the input first.</p>
+  <div id="sink"></div>
+  <script src="purify.js"></script>
+  <script>
+    var params = new URLSearchParams(location.search);
+    document.getElementById('sink').innerHTML = sanitize(params.get('q') || '');
+  </script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>06 window.name sink</title>
+</head>
+<body>
+  <h1>06 window.name sink</h1>
+  <p>window.name crosses pages and reaches insertAdjacentHTML.</p>
+  <div id="sink"></div>
+  <script>
+    document.getElementById('sink').insertAdjacentHTML('beforeend', window.name);
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>08 inline onerror</title>
+</head>
+<body>
+  <h1>08 inline onerror</h1>
+  <p>An inline event handler carries the sink and reads the fragment.</p>
+  <img src="missing.png" alt="" onerror="document.getElementById('sink').innerHTML = location.hash.slice(1)">
+  <div id="sink"></div>
+</body>
+</html>

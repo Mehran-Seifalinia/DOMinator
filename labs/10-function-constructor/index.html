@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>10 function constructor</title>
+</head>
+<body>
+  <h1>10 function constructor</h1>
+  <p>The Function constructor compiles the fragment.</p>
+  <script>
+    var build = new Function('return ' + decodeURIComponent(location.hash.slice(1)));
+    build();
+  </script>
+</body>
+</html>

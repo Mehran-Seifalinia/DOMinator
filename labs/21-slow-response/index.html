@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>21 slow response</title>
+</head>
+<body>
+  <h1>21 slow response</h1>
+  <p>Add ?delay=5 to make the server answer after five seconds.</p>
+  <div id="sink"></div>
+  <script>
+    document.getElementById('sink').innerHTML = decodeURIComponent(location.hash.slice(1));
+  </script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>02 search to innerHTML</title>
+</head>
+<body>
+  <h1>02 search to innerHTML</h1>
+  <p>The query string reaches innerHTML through URLSearchParams.</p>
+  <div id="sink"></div>
+  <script>
+    var params = new URLSearchParams(location.search);
+    document.getElementById('sink').innerHTML = params.get('q') || '';
+  </script>
+</body>
+</html>
