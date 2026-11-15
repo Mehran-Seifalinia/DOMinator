@@ -979,6 +979,8 @@ async def main() -> None:
         shared_browser = None
         if args.level >= 2:
             from playwright.async_api import async_playwright
+            from utils.browser_setup import ensure_browser_installed
+            await ensure_browser_installed()
             playwright = await async_playwright().start()
             shared_browser = await playwright.chromium.launch(
                 headless=headless_mode,
