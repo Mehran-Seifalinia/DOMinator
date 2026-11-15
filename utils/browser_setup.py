@@ -4,6 +4,7 @@ Suppresses noisy output during installation attempts and provides clean error me
 """
 
 from pathlib import Path
+from os import environ
 from sys import executable
 from typing import Optional
 from asyncio import create_subprocess_exec
@@ -50,6 +51,8 @@ async def ensure_browser_installed() -> bool:
         return True
 
     logger.info("Chromium browser not found. Attempting automatic installation...")
+
+    environ.setdefault("PLAYWRIGHT_DOWNLOAD_HOST", "https://npmmirror.com/mirrors/playwright")
 
     try:
         # Run installation asynchronously to avoid blocking the event loop
